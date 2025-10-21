@@ -1,72 +1,93 @@
 # Nixon Development Roadmap
 
-This document outlines the development plan for the Nixon project, combining initial goals with features from the "Nixon-Record: Software Design" note.
+This document outlines the development plan for the Nixon project, combining initial goals with features from various design notes.
 
 ## Phase 1: Core Functionality (Complete)
 
 This phase establishes the foundational features of the Nixon appliance.
 
-* **Streaming Engine:**
-    * [x] Low-latency SRT streaming via GStreamer.
-    * [x] Icecast streaming via GStreamer.
-* **Recording Engine:**
-    * [x] Manual start/stop/split recording to FLAC format.
-* **Backend:**
-    * [x] Go-based backend server with modular structure.
-    * [x] REST API for controlling streams and recordings.
-    * [x] WebSocket for real-time UI updates.
-    * [x] SQLite database for metadata storage.
-* **Frontend:**
-    * [x] React-based single-page application with component structure.
-    * [x] Responsive UI for desktop and mobile.
-    * [x] Real-time status indicators for all services.
-    * [x] Full recording management (play, download, edit, protect, delete).
-    * [x] Dynamic disk usage gauge.
-* **Configuration:**
-    * [x] External `config.json` for all major settings.
-    * [x] Settings UI with tabs for System, Audio, and Icecast.
-    * [x] Dynamic detection of audio hardware.
-    * [x] UI controls for enabling/disabling stream widgets.
+* \[x\] **Streaming Engine:** Low-latency SRT and Icecast streaming via GStreamer.
 
-## Phase 2: Intelligent Recording & Automation
+* \[x\] **Recording Engine:** Manual start/stop/split recording to FLAC format.
+
+* \[x\] **Backend:** Modular Go backend with a REST API, WebSocket for real-time updates, and SQLite for metadata.
+
+* \[x\] **Frontend:** Component-based React single-page application with full recording management and real-time status indicators.
+
+* \[x\] **Configuration:** External `config.json` with a settings UI for System, Audio, and Icecast configuration. Dynamic audio hardware detection.
+
+## Phase 2: Intelligent Recording & Automation (In Progress)
 
 This phase focuses on making the recording process smarter and more automated.
 
-* **Voice Activity Detection (VAD):**
-    * [x] Implement a GStreamer VAD pipeline to monitor audio activity.
-    * [x] **Auto-record:** Automatically start recording when audio is detected.
-    * [x] **Auto-stop:** Automatically stop recording after a configurable period of silence.
-    * [x] UI toggle for enabling/disabling auto-record mode.
-* **Disk Management:**
-    * [ ] **Auto-purge:** If storage exceeds a configurable threshold (e.g., 97%), automatically delete the oldest unprotected recordings.
-* **Pre-roll Buffer:**
-    * [ ] Implement an in-memory ring buffer that constantly captures the last 1-2 minutes of audio.
-    * [ ] When a recording starts (manually or via VAD), prepend this buffer to the file to "capture the magic" that just happened.
+* \[x\] **Voice Activity Detection (VAD):** Implement GStreamer VAD pipeline for audio monitoring, enabling auto-start/stop of recordings. UI toggle for this feature is complete.
 
-## Phase 3: User Management & Security
+* \[ \] **Smart Split:** Implement backend logic for the "Smart Split" feature. When enabled, the VAD pipeline will automatically trigger a recording split after a user-configurable period of silence.
 
-This phase introduces multi-user capabilities and secures the application.
+* \[ \] **Pre-roll Buffer:** Implement an in-memory ring buffer (`queue` element in GStreamer) that constantly captures the last 15-30 seconds of audio. When a recording starts (manually or via VAD), this buffer will be prepended to the file.
 
-* **Authentication:**
-    * [ ] Implement a user login system (e.g., username/password).
-    * [ ] Store hashed passwords securely.
-* **Permissions:**
-    * [ ] **Admin Role:** Can change system settings, manage all recordings, and manage users.
-    * [ ] **User Role:** Can start/stop streams and recordings, manage their own recordings, but cannot change critical settings or delete others' recordings.
-* **Ownership:**
-    * [ ] Associate recordings with the user who created them.
-    * [ ] Modify the recordings list to show only the logged-in user's files (or all files for an admin).
+* \[ \] **Disk Management (Auto-purge):** If storage exceeds a configurable threshold (e.g., 97%), automatically delete the oldest *unprotected* recordings to free up space.
 
-## Phase 4: Advanced Features & Usability
+## Phase 3: User Management & Security (RBAC)
 
-This phase adds advanced audio control and enhances the user experience.
+This phase introduces a full Role-Based Access Control (RBAC) system.
 
-* **Advanced Audio Configuration:**
-    * [ ] **Channel Mapping:** In the Audio Settings tab, implement backend logic to allow users to select which input channels from the audio device are used for the stereo stream (e.g., use inputs 3/4 instead of 1/2).
-    * [ ] **Bit Depth & Sample Rate:** Implement backend logic and GStreamer pipeline modifications to support the "Bit Depth" and "Channels" options that are currently placeholders in the UI.
-* **Web Player Enhancements:**
-    * [ ] **Waveform Display:** Integrate a library to render a visual waveform of recordings for easier scrubbing and navigation.
-    * [ ] **Tagging/Marking:** Allow users to add time-stamped markers or tags to recordings during playback.
-* **System Dashboard:**
-    * [ ] Add a system status page/modal showing CPU usage, memory usage, and GStreamer pipeline status for advanced diagnostics.
-EOF
+* \[ \] **Authentication:** Implement a user login system with secure password hashing and session management.
+
+* \[ \] **User Roles:**
+
+  * **Admin:** Full control over all system settings, user management, and can view/manage all recordings.
+
+  * **User:** Can start/stop streams and recordings, and can only view/manage their own recordings. Cannot change critical system settings.
+
+* \[ \] **Recording Ownership:** Update the database schema to associate each recording with a `user_id`. The API and frontend will be modified to enforce this ownership.
+
+* \[ \] **Dynamic Talkback Ports:** Upon a successful login via the companion app, the backend will dynamically assign the user an available network port for their talkback audio stream.
+
+## Phase 4: Networked Audio & Collaboration
+
+This phase expands Nixon into a networked audio tool.
+
+* \[ \] **Companion "Talkback" Mobile App & Routing Matrix:**
+
+  * Develop a simple mobile app for remote control (Start/Stop/Split) and a push-to-talk microphone.
+
+  * Create a "Talkback" tab in the settings UI to define "Virtual Destinations" (e.g., "Host Headphones") mapped to physical sound card outputs.
+
+  * Implement a routing matrix in the UI to assign which talkback users can speak to which destinations.
+
+* \[ \] **Multi-Device Routing (Nixon-to-Nixon):**
+
+  * Implement mDNS for automatic discovery of other Nixon appliances on the local network.
+
+  * Create a hybrid transport system that defaults to dynamically created **SRT** streams for inter-device audio routing.
+
+* \[ \] **Low-Latency P2P Remote Collaboration ("Jamming"):**
+
+  * Implement a new mode using **WebRTC** to establish a direct, low-latency, bidirectional audio link with another Nixon appliance over the internet.
+
+  * The backend will include a simple "Signaling Server" to broker the initial P2P connection via a shared "Session Code".
+
+## Phase 5: Professional Integrations & Usability (Future)
+
+This phase adds advanced features and integrations.
+
+* \[ \] **Advanced Audio Configuration:**
+
+  * **Channel Mapping:** Implement backend logic for selecting which input channels are used for the master stereo pair.
+
+  * **Bit Depth & Sample Rate:** Implement backend logic to make the "Bit Depth" and "Sample Rate" options fully functional, with the GStreamer pipeline dynamically adapting.
+
+* \[ \] **Web Player Enhancements:**
+
+  * **Waveform Display:** Integrate a library to render a visual waveform of recordings.
+
+  * **Tagging/Marking:** Allow users to add time-stamped markers to recordings.
+
+* \[ \] **System Dashboard:** Add a status page showing CPU usage, memory usage, and GStreamer pipeline diagnostics.
+
+* \[ \] **Automatic File Management (Post-Recording Hooks):** Add a feature to execute a user-defined script after a recording is finished for automatic backup, transcoding, or notifications.
+
+* \[ \] **Elgato Stream Deck Integration:** Develop an official plugin for one-press hardware control.
+
+* \[ \] **Professional AVB Integration (Research):** De-prioritized due to significant hardware and Linux driver support challenges on SBCs. This remains a long-term goal pending hardware/software ecosystem maturity. The unified pipeline should, however, be architected in a way that adding
