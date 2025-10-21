@@ -1,0 +1,24 @@
+{
+    "srt_enabled": true,
+    "icecast_enabled": true,
+    "audio_settings": {
+        "device": "hw:CARD=USB,DEV=0",
+        "bitrate": 48000,
+        "bit_depth": 24,
+        "channels": 2
+    },
+    "icecast_settings": {
+        "url": "192.168.98.99",
+        "port": "8000",
+        "mount": "stream",
+        "password": "hackme",
+        "stream_name": "Nixon Stream",
+        "stream_genre": "Various",
+        "stream_description": "Live from the studio",
+        "server_type": "icecast2"
+    },
+    "auto_record": {
+        "enabled": false,
+        "timeout_seconds": 300
+    }
+}
