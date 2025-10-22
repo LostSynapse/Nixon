@@ -11,4 +11,6 @@ As they say, you should always be recording in case you are struck with inspirat
 
 With this setup, it's set and forget. 
 
-Take a look at manual_setup.md if you want to check it out. 
+Take a look at manual_setup.md if you want to check it out.
+
+the automatic recording feature is currently broken but a fix/ overhaul to the backend is under way, and it will be the foundation for a completely redesigned scope.  aka managed feature bloat.
