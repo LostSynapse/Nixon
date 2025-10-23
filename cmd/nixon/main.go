@@ -2,72 +2,110 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log"
 	"net/http"
 	"nixon/internal/api"
-	"nixon/internal/config" // Ensure config is imported
+	"nixon/internal/config"
 	"nixon/internal/db"
 	"nixon/internal/gstreamer"
-	"nixon/internal/websocket"
+	"nixon/internal/websocket" // Keep websocket import for callback
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
 func main() {
 	log.Println("Starting Nixon server...")
 
-	// config.InitConfig() is no longer needed.
-	// Initialization happens automatically on the first call to config.GetConfig() below.
+	// Initialize configuration first
+	cfg := config.GetConfig()
+	log.Println("Configuration initialized.")
 
-	// Initialize Database first (relies on default config path)
+	// Initialize Database
 	if err := db.Init(); err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 	defer db.Close()
 
-	// Now get the config, which implicitly initializes it if needed.
-	conf := config.GetConfig()
-
-	// Create recordings directory using the now-loaded config path
-	if err := os.MkdirAll(conf.AutoRecord.Directory, os.ModePerm); err != nil {
-		// Log as warning, not fatal, as the dir might already exist or fail later
-		log.Printf("Warning: Failed to create recordings directory '%s': %v", conf.AutoRecord.Directory, err)
+	// Ensure recordings directory exists
+	if err := os.MkdirAll(cfg.AutoRecord.Directory, 0755); err != nil {
+		log.Printf("Warning: Failed to create recordings directory '%s': %v", cfg.AutoRecord.Directory, err)
+	} else {
+		log.Printf("Ensured recordings directory exists: %s", cfg.AutoRecord.Directory)
 	}
 
-	// Initialize GStreamer Manager (but don't start the pipeline yet)
-	gstreamer.Init(conf)
-
-	// Initialize API Router (needs config for recordings path)
-	router := api.NewRouter()
+	// Initialize GStreamer Manager, providing the broadcast callback (A3 Fix)
+	// Pass websocket.BroadcastUpdate directly as the callback function
+	if err := gstreamer.Init(cfg, websocket.BroadcastUpdate); err != nil {
+		log.Printf("Warning: Failed to initialize GStreamer manager: %v. Server starting without pipeline.", err)
+	} else {
+		log.Println("GStreamer manager initialized.")
+		// Attempt initial pipeline start asynchronously
+		go func() {
+			log.Println("Attempting initial GStreamer pipeline start...")
+			if manager := gstreamer.GetManager(); manager != nil {
+				if err := manager.StartPipeline(); err != nil {
+					log.Printf("Initial GStreamer pipeline start failed: %v. Server will continue running.", err)
+				}
+			} else {
+				log.Println("Error: GStreamer manager is nil after Init, cannot start pipeline.")
+			}
+		}()
+	}
 
 	// Start background tasks
-	log.Println("Starting background tasks...")
-	go api.StartStatusUpdater()      // This was missing
-	go websocket.StartBroadcaster() // This was missing
-	go gstreamer.GetManager().StartVadMonitor()
+	api.StartStatusUpdater() // Starts disk usage, listener monitoring
+	go websocket.StartBroadcaster()
+	// Polling is removed as gstreamer now pushes updates via callback (A3 Fix)
+	// go websocket.PollAndBroadcast()
+	log.Println("Background tasks started.")
 
-	// Start the web server
-	log.Println("Server listening on :8080")
+	// Setup Router (A1: Using net/http)
+	router := api.NewRouter()
+	log.Println("API router initialized (using net/http).")
+
+	// Setup HTTP Server with graceful shutdown
 	server := &http.Server{
 		Addr:         ":8080",
 		Handler:      router,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
-	// Attempt initial GStreamer pipeline start *after* server starts
+	// Goroutine for graceful shutdown
 	go func() {
-		log.Println("Attempting initial GStreamer pipeline start...")
-		// Wait a tiny bit for the server goroutine to start listening
-		time.Sleep(100 * time.Millisecond)
-		if err := gstreamer.GetManager().StartPipeline(); err != nil {
-			log.Printf("Initial GStreamer pipeline start failed: %v. Server will continue running.", err)
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+		<-sigChan // Wait for signal
+
+		log.Println("Shutdown signal received, starting graceful shutdown...")
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		// Stop GStreamer pipeline gracefully
+		if manager := gstreamer.GetManager(); manager != nil {
+			log.Println("Stopping GStreamer pipeline...")
+			manager.StopPipelineGraceful()
 		}
+
+		// Shutdown HTTP server
+		server.SetKeepAlivesEnabled(false)
+		if err := server.Shutdown(ctx); err != nil {
+			log.Fatalf("Server forced to shutdown: %v", err)
+		}
+		log.Println("Server gracefully stopped.")
 	}()
 
-	// Start the HTTP server (blocking call)
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("Failed to start web server: %v", err)
+	// Start the server
+	log.Println("Server listening on :8080")
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatalf("Failed to start server: %v", err)
 	}
+
+	log.Println("Nixon server exiting.")
 }
 
