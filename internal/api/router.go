@@ -1,48 +1,55 @@
+// internal/api/router.go
 package api
 
 import (
-	"github.com/gin-gonic/gin"
+	"net/http"
 	"nixon/internal/config"
 	"nixon/internal/websocket"
+	"path/filepath"
+
+	"github.com/gorilla/mux"
 )
 
-func SetupRouter() *gin.Engine {
-	router := gin.Default()
+// NewRouter creates and configures the main application router
+func NewRouter() *mux.Router {
+	router := mux.NewRouter().StrictSlash(true)
 
-	router.Static("/assets", "./web/assets")
-	router.Static("/recordings", config.RecordingsDir)
-	router.StaticFile("/nixon_logo.svg", "./web/nixon_logo.svg")
+	// API routes (must be defined BEFORE the static handlers)
+	api := router.PathPrefix("/api").Subrouter()
+	api.HandleFunc("/config", GetConfig).Methods("GET")
+	api.HandleFunc("/config", UpdateConfig).Methods("POST")
+	api.HandleFunc("/capabilities", GetAudioCapabilitiesHandler).Methods("GET")
+	api.HandleFunc("/status", GetStreamStatus).Methods("GET")
+	api.HandleFunc("/stream", SetStreamState).Methods("POST")
+	api.HandleFunc("/record/start", StartRecordingHandler).Methods("POST")
+	api.HandleFunc("/record/stop", StopRecordingHandler).Methods("POST")
 
-	api := router.Group("/api")
-	{
-		api.GET("/status", getStatus)
-		api.POST("/stream/srt/:action", handleSRTStream)
-		api.POST("/stream/icecast/:action", handleIcecastStream)
-		api.POST("/stream/all/:action", handleAllStreams)
-		api.POST("/recording/:action", handleRecording)
+	// WebSocket route
+	router.HandleFunc("/ws", websocket.HandleConnections)
 
-		api.GET("/recordings", handleGetRecordings)
-		api.PUT("/recordings/:id", handleUpdateRecording)
-		api.POST("/recordings/:id/protect", handleToggleProtect)
-		api.DELETE("/recordings/:id", handleDeleteRecording)
+	// --- Static File Server (Replicating old Gin logic) ---
 
-		api.GET("/settings/all", getFullConfig)
-		api.POST("/settings/icecast", updateIcecastSettings)
-		api.POST("/settings/system", updateSystemSettings)
-		api.POST("/settings/audio", updateAudioSettings)
+	// 1. Serve the /assets directory
+	// This handles /assets/index-DtCWpx-N.js, etc.
+	assetDir := "./web/assets/"
+	router.PathPrefix("/assets/").Handler(http.StripPrefix("/assets/", http.FileServer(http.Dir(assetDir))))
 
-		api.GET("/system/audiodevices", handleGetAudioDevices)
-	}
+	// 2. Serve the /recordings directory
+	// Note: We get the directory from the config, which is loaded *before* the router is created.
+	recDir := config.GetConfig().AutoRecord.Directory
+	router.PathPrefix("/recordings/").Handler(http.StripPrefix("/recordings/", http.FileServer(http.Dir(recDir))))
 
-	router.GET("/ws", websocket.HandleWebSocket)
-	router.NoRoute(func(c *gin.Context) {
-		c.File("./web/index.html")
+	// 3. Serve specific files from the /web root
+	// This handles the favicon
+	router.Path("/nixon_logo.svg").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "./web/nixon_logo.svg")
 	})
 
-	go monitorDiskUsage()
-	go monitorIcecastListeners()
-	go websocket.PollAndBroadcast()
-	go websocket.HandleBroadcast()
+	// 4. "NoRoute" catch-all: Serve index.html for all other routes
+	// This is the most critical part for React's client-side router.
+	router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, filepath.Join("./web", "index.html"))
+	})
 
 	return router
 }
