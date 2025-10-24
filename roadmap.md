@@ -1,72 +1,73 @@
 # Nixon Development Roadmap
 
-This document outlines the development plan for the Nixon project, combining initial goals with features from the "Nixon-Record: Software Design" note.
+This document outlines the development plan for the Nixon project, reflecting the current 'Nixon-testing' codebase and incorporating future goals.
 
-## Phase 1: Core Functionality (Complete)
+## Phase 1: Core Architecture (Complete)
 
-This phase establishes the foundational features of the Nixon appliance.
+This phase establishes the foundational features of the Nixon appliance, based on the current refactored codebase.
 
-* **Streaming Engine:**
-    * \[x\] Low-latency SRT streaming via GStreamer.
-    * \[x\] Icecast streaming via GStreamer.
-* **Recording Engine:**
-    * \[x\] Manual start/stop/split recording to FLAC format.
-* **Backend:**
-    * \[x\] Go-based backend server with modular structure.
-    * \[x\] REST API for controlling streams and recordings.
-    * \[x\] WebSocket for real-time UI updates.
-    * \[x\] SQLite database for metadata storage.
-* **Frontend:**
-    * \[x\] React-based single-page application with component structure.
-    * \[x\] Responsive UI for desktop and mobile.
-    * \[x\] Real-time status indicators for all services.
-    * \[x\] Full recording management (play, download, edit, protect, delete).
-    * \[x\] Dynamic disk usage gauge.
-* **Configuration:**
-    * \[x\] External `config.json` for all major settings.
-    * \[x\] Settings UI with tabs for System, Audio, and Icecast.
-    * \[x\] Dynamic detection of audio hardware.
-    * \[x\] UI controls for enabling/disabling stream widgets.
+* \[x\] **Backend:** Modular Go backend using the standard `net/http` library.
+* \[x\] **Database:** Migrated to GORM for robust database interactions.
+* \[x\] **Audio Pipeline:** Unified, single-process audio pipeline built using native `go-gst` bindings (not command-line).
+* \[x\] **Audio Source:** Uses `pipewiresrc` as the master audio source, enabling native routing and eliminating hardware conflicts.
+* \[x\] **Audio Core:** A `tee` element splits the master signal into dynamic branches for VAD, pre-roll, recording, and streaming.
+* \[x\] **Frontend:** Component-based React single-page application using a custom `useNixonApi` hook for state management.
+* \[x\] **Configuration:** Centralized `config.json` driving all backend logic.
+* \[x\] **Real-time:** Event-driven WebSocket communication with the backend pushing state updates.
+* \[x\] **Logo:** Converted to a re-colorable React component with a separate hardcoded-black favicon.
 
-## Phase 2: Intelligent Recording & Automation
+## Phase 2: Stability & Feature Completion (Current Priority)
 
-This phase focuses on making the recording process smarter and more automated.
+This phase focuses on hardening the new architecture and completing the partially-implemented features from the refactor.
 
-* **Voice Activity Detection (VAD):**
-    * \[x\] Implement a GStreamer VAD pipeline to monitor audio activity.
-    * \[x\] **Auto-record:** Automatically start recording when audio is detected.
-    * \[x\] **Auto-stop:** Automatically stop recording after a configurable period of silence.
-    * \[x\] UI toggle for enabling/disabling auto-record mode.
-* **Disk Management:**
-    * \[ \] **Auto-purge:** If storage exceeds a configurable threshold (e.g., 97%), automatically delete the oldest unprotected recordings.
-* **Pre-roll Buffer:**
-    * \[ \] Implement an in-memory ring buffer that constantly captures the last 1-2 minutes of audio.
-    * \[ \] When a recording starts (manually or via VAD), prepend this buffer to the file to "capture the magic" that just happened.
+* \[ \] **(Highest Priority) Dummy Audio Source:** Implement a fallback to `audiotestsrc` within the GStreamer pipeline. If the configured `pipewiresrc` device fails to initialize at startup, the pipeline must failover to this test source. This prevents a backend crash and allows the user to access the UI to correct the audio configuration.
+* \[ \] **Hardware Capability Detection:** Implement the backend API endpoint (`/api/capabilities`) that executes `arecord --dump-hw-params` and parses the output for supported sample rates and bit depths. The frontend "Audio" tab must be connected to this endpoint to dynamically populate its dropdowns.
+* \[ \] **Channel Mapping:** Implement the GStreamer logic (`deinterleave`/`interleave`) to dynamically select the stereo pair specified by the `master_channels` array in the config.
+* \[ \] **Disk Management (Auto-purge):** Implement a background task to automatically delete the oldest *unprotected* recordings when disk usage exceeds a configurable threshold.
 
-## Phase 3: User Management & Security
+## Phase 3: User Management & Security (RBAC)
 
-This phase introduces multi-user capabilities and secures the application.
+This phase introduces a full Role-Based Access Control (RBAC) system.
 
-* **Authentication:**
-    * \[ \] Implement a user login system (e.g., username/password).
-    * \[ \] Store hashed passwords securely.
-* **Permissions:**
-    * \[ \] **Admin Role:** Can change system settings, manage all recordings, and manage users.
-    * \[ \] **User Role:** Can start/stop streams and recordings, manage their own recordings, but cannot change critical settings or delete others' recordings.
-* **Ownership:**
-    * \[ \] Associate recordings with the user who created them.
-    * \[ \] Modify the recordings list to show only the logged-in user's files (or all files for an admin).
+* \[ \] **Authentication:** Implement a user login system with secure password hashing and session management.
+* \[ \] **User Roles:**
+    * **Admin:** Full control over all system settings, user management, and can view/manage all recordings.
+    * **User:** Can start/stop streams and recordings, and can only view/manage their own recordings.
+* \[ \] **Recording Ownership:** Update the database schema to associate each recording with a `user_id`. The API and frontend will be modified to enforce this ownership.
+* \[ \] **Dynamic Talkback Ports:** Upon a successful login via the companion app, the backend will dynamically assign the user an available network port for their talkback audio stream (dependent on Phase 4).
 
-## Phase 4: Advanced Features & Usability
+## Phase 4: Networked Control & Routing
 
-This phase adds advanced audio control and enhances the user experience.
+This phase implements the "routing matrix" concept for both audio and MIDI, using open standards as the primary goal.
 
-* **Advanced Audio Configuration:**
-    * \[ \] **Channel Mapping:** In the Audio Settings tab, implement backend logic to allow users to select which input channels from the audio device are used for the stereo stream (e.g., use inputs 3/4 instead of 1/2).
-    * \[ \] **Bit Depth & Sample Rate:** Implement backend logic and GStreamer pipeline modifications to support the "Bit Depth" and "Channels" options that are currently placeholders in the UI.
-* **Web Player Enhancements:**
-    * \[ \] **Waveform Display:** Integrate a library to render a visual waveform of recordings for easier scrubbing and navigation.
-    * \[ \] **Tagging/Marking:** Allow users to add time-stamped markers or tags to recordings during playback.
-* **System Dashboard:**
-    * \[ \] Add a system status page/modal showing CPU usage, memory usage, and GStreamer pipeline status for advanced diagnostics.
-EOF
+* \[ \] **AES70 (OCA) Control Framework:**
+    * \[ \] Implement an AES70 device controller in Go. This will become the primary framework for all control and communication, replacing the simple REST API for pipeline and state control.
+    * \[ \] Expose all controllable parameters (routing, mixing, config) as AES70 objects using a temporary manufacturer ID.
+* \[ \] **Audio Routing Matrix (Talkback):**
+    * \[ \] Develop a "Talkback" mobile app (as a PWA or native app).
+    * \[ \] Create a "Routing" tab in the Nixon UI to visualize and control the PipeWire/JACK graph.
+    * \[ \] Use AES70 commands to create and sever connections (`pw-link`), allowing routing of any source (e.g., Talkback user) to any "Virtual Destination" (e.g., `pipewiresink` for headphones).
+* \[ \] **MIDI Routing Matrix:**
+    * \[ \] Add backend logic to detect and manage MIDI devices (USB, 5-pin DIN via GPIO, and `rtpmidi` network streams) through PipeWire.
+    * \[ \] Expand the "Routing" tab to show MIDI sources and destinations.
+    * \[ \] Use AES70 commands to manage the MIDI routing (e.g., `pw-link` for MIDI ports).
+* \[ \] **Multi-Device Routing (Nixon-to-Nixon):**
+    * \[ \] Implement mDNS for automatic discovery of other Nixon appliances.
+    * \[ \] Use AES70 for inter-device control.
+    * \[ \] Create a hybrid audio transport system that automatically uses **AVB/AES67** (see Phase 5) if a compatible network is detected, and falls back to dynamically created **SRT** streams on standard networks.
+
+## Phase 5: Professional Integrations & Usability
+
+This phase adds advanced features and integrations.
+
+* \[ \] **Professional AoIP Integration (AVB/AES67):**
+    * \[ \] With the `i226-v` hardware solution identified and the `pipewiresrc` foundation in place, this is a high-priority integration.
+    * \[ \] Implement `avbsrc` / `avbsink` and AES67 support, allowing Nixon to act as a native, multi-channel node on a pro-audio network.
+* \[ \] **Low-Latency P2P Remote Collaboration ("Jamming"):**
+    * \[ \] Implement a **WebRTC** mode for direct internet-based collaboration, brokered by a signaling server (using `network_settings` from `config.json`).
+* \[ \] **Web Player Enhancements:**
+    * \[ \] **Waveform Display:** Integrate a library to render a visual waveform of recordings.
+    * \[ \] **Tagging/Marking:** Allow users to add time-stamped markers to recordings.
+* \[ \] **System Dashboard:** Add a status page showing CPU, memory, and PipeWire graph diagnostics.
+* \[ \] **Automatic File Management (Post-Recording Hooks):** Add a feature to execute a user-defined script after a recording is finished for automatic backup, transcoding, or notifications.
+* \[ \] **Elgato Stream Deck Integration:** Develop an official plugin for one-press hardware control.
