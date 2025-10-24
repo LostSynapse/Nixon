@@ -31,4 +31,3 @@ The Go code is generally well-structured for a non-modular system, but several i
 | \`internal/api/router.go\` | **GORM/API Inconsistency:** The \`UpdateRecordingHandler\` request body uses **pointer types** (\`*string\`) for optional fields, while the \`db.Recording\` model uses **non-pointer strings**. | **Best Practice/Consistency:** Modify the request body struct to match the \`db.Recording\` model (use non-pointer strings), simplifying the update logic and adhering to best practices for data consistency. |
 | \`internal/api/tasks.go\` | **Temporary Error Handling:** The \`monitorIcecastListeners\` function does not reset listener count on temporary HTTP errors. | **Robustness:** While keeping the last state is good for transient errors, a more robust system would include a counter to reset the status to '0' after several consecutive failures, to accurately reflect stream outages. |
 
-EOF
