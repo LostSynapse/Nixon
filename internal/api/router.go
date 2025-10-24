@@ -1,236 +1,228 @@
 // internal/api/router.go
+// This file sets up the API routes for configuration, control, and data access.
+
 package api
 
 import (
 	"encoding/json"
-	"errors"
-	"fmt"
-	"gorm.io/gorm" // A6: For error checking
 	"log"
 	"net/http"
 	"nixon/internal/config"
-	"nixon/internal/db" // A6: Use GORM db package
+	"nixon/internal/db"
 	"nixon/internal/gstreamer"
 	"nixon/internal/websocket"
-	"os"
-	"path/filepath"
 	"strconv"
-	"strings"
-	// A1: Using standard library http, no external router needed
+
+	"github.com/gin-gonic/gin"
 )
 
-// NewRouter creates and configures the main application router using net/http (A1)
-func NewRouter() http.Handler {
-	mux := http.NewServeMux()
+// InitRouter initializes the Gin router and defines all API endpoints.
+func InitRouter() *gin.Engine {
+	// Gin is used here for its simplicity and robustness, though for a lean appliance
+	// a custom net/http router could be considered later.
+	router := gin.Default()
 
-	// --- API Routes ---
-	mux.HandleFunc("GET /api/config", GetConfigHandler)
-	mux.HandleFunc("POST /api/config", UpdateConfigHandler)
-	mux.HandleFunc("GET /api/capabilities", GetAudioCapabilitiesHandler) // Matches GET /api/capabilities?device=...
-	mux.HandleFunc("GET /api/status", GetStreamStatusHandler)
-	mux.HandleFunc("POST /api/stream", SetStreamStateHandler) // Body: {"stream": "srt|icecast", "enabled": true|false}
-	mux.HandleFunc("POST /api/record/start", StartRecordingHandler)
-	mux.HandleFunc("POST /api/record/stop", StopRecordingHandler)
+	// Serve the static React assets from the 'web/dist' directory
+	// In the future, this will be replaced by an embedded Go server solution.
+	router.StaticFile("/", "./web/dist/index.html")
+	router.Static("/assets", "./web/dist/assets")
 
-	// Recording CRUD Routes (A6 GORM) - Use Go 1.22+ PathValue style
-	mux.HandleFunc("GET /api/recordings", GetRecordingsHandler)             // GET /api/recordings
-	mux.HandleFunc("PUT /api/recordings/{id}", UpdateRecordingHandler)      // PUT /api/recordings/123
-	mux.HandleFunc("POST /api/recordings/{id}/protect", ToggleProtectHandler) // POST /api/recordings/123/protect
-	mux.HandleFunc("DELETE /api/recordings/{id}", DeleteRecordingHandler)   // DELETE /api/recordings/123
+	// API routes group
+	api := router.Group("/api")
+	{
+		// --- Status and Configuration ---
 
-	// --- WebSocket Route ---
-	mux.HandleFunc("/ws", websocket.HandleConnections)
+		// GET /api/status - Returns the current combined status of the application
+		api.GET("/status", getStatusHandler)
 
-	// --- Static File Server & SPA Handler ---
-	staticDir := "./web" // Serve from ./web as per manual_setup.md
-	fileServer := http.FileServer(http.Dir(staticDir))
+		// GET /api/config - Returns the current application configuration
+		api.GET("/config", getConfigHandler)
 
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "..") { http.Error(w, "Invalid path", http.StatusBadRequest); return }
-		requestedPath := filepath.Join(staticDir, r.URL.Path)
-		stat, err := os.Stat(requestedPath)
+		// POST /api/config - Updates and saves the entire application configuration
+		api.POST("/config", updateConfigHandler)
 
-		if os.IsNotExist(err) || (err == nil && stat.IsDir()) {
-			indexPath := filepath.Join(staticDir, "index.html")
-			if _, indexErr := os.Stat(indexPath); indexErr != nil {
-				http.Error(w, "index.html not found", http.StatusNotFound)
-				log.Printf("CRITICAL ERROR: index.html not found in static directory '%s'", staticDir)
-				return
-			}
-			http.ServeFile(w, r, indexPath)
-			return
-		} else if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		// Use StripPrefix for serving assets correctly
-		http.StripPrefix("/", fileServer).ServeHTTP(w, r)
+		// GET /api/devices - Returns a list of available audio input devices
+		api.GET("/devices", getAudioDevicesHandler)
+
+		// --- Control ---
+
+		// POST /api/start - Starts the GStreamer audio pipeline
+		api.POST("/start", startPipelineHandler)
+
+		// POST /api/stop - Stops the GStreamer audio pipeline
+		api.POST("/stop", stopPipelineHandler)
+
+		// --- Database/Recordings ---
+
+		// GET /api/recordings - Lists all recordings
+		api.GET("/recordings", listRecordingsHandler)
+
+		// DELETE /api/recordings/:id - Deletes a specific recording entry
+		api.DELETE("/recordings/:id", deleteRecordingHandler)
+
+		// PUT /api/recordings/:id - Updates metadata (notes/genre) for a recording
+		api.PUT("/recordings/:id", updateRecordingHandler)
+	}
+
+	// WebSocket route
+	router.GET("/ws", websocket.HandleConnections)
+
+	return router
+}
+
+// --- Handler Implementations ---
+
+func getStatusHandler(c *gin.Context) {
+	// Combine GStreamer status with monitoring data for a comprehensive view
+	gstStatus := gstreamer.GetManager().GetStatus()
+	
+	// Create a map to combine GStreamer status and monitoring data
+	statusMap := make(map[string]interface{})
+	
+	// Marshal and unmarshal GStreamer status to convert it to a map[string]interface{}
+	gstBytes, _ := json.Marshal(gstStatus)
+	json.Unmarshal(gstBytes, &statusMap)
+
+	// Add listener and disk info from the manager's state
+	current, peak := gstreamer.GetManager().GetListeners()
+	statusMap["listener_current"] = current
+	statusMap["listener_peak"] = peak
+	statusMap["disk_usage"] = gstreamer.GetManager().GetDiskUsage()
+
+	c.JSON(http.StatusOK, statusMap)
+}
+
+func getConfigHandler(c *gin.Context) {
+	c.JSON(http.StatusOK, config.GetConfig())
+}
+
+// Request body structure for configuration updates
+type updateConfigRequest struct {
+	config.Config
+}
+
+func updateConfigHandler(c *gin.Context) {
+	var reqBody updateConfigRequest
+
+	if err := c.ShouldBindJSON(&reqBody); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body format"})
+		return
+	}
+
+	// FIX: Use the new SaveGlobalConfig function
+	if err := config.SaveGlobalConfig(reqBody.Config); err != nil {
+		log.Printf("ERROR: Failed to save config: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save configuration"})
+		return
+	}
+
+	// FIX: Convert the struct to a map[string]interface{} before broadcasting
+	// This is necessary because the WebSocket broadcast function expects a map for JSON serialization.
+	cfgMap := make(map[string]interface{})
+	cfgBytes, _ := json.Marshal(reqBody.Config)
+	json.Unmarshal(cfgBytes, &cfgMap)
+
+	websocket.BroadcastUpdate(map[string]interface{}{
+		"config": cfgMap,
 	})
 
-	log.Println("Using net/http router (A1)")
-	return mux
+	// Re-start pipeline to apply new settings if it was running (e.g., sample rate change)
+	gstreamer.GetManager().RestartPipeline()
+
+	c.JSON(http.StatusOK, gin.H{"message": "Configuration updated successfully"})
 }
 
-// --- Handler Implementations using net/http ---
-
-func writeJSONResponse(w http.ResponseWriter, statusCode int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	if data != nil {
-		if err := json.NewEncoder(w).Encode(data); err != nil {
-			// Log error, but headers might already be sent
-			log.Printf("Error encoding JSON response: %v", err)
-		}
-	}
-}
-
-func writeOK(w http.ResponseWriter) {
-	writeJSONResponse(w, http.StatusOK, map[string]string{"status": "ok"})
-}
-
-func writeError(w http.ResponseWriter, statusCode int, message string, err error) {
-	log.Printf("API Error %d: %s (%v)", statusCode, message, err) // Log the underlying error
-	http.Error(w, message, statusCode)                            // Send user-friendly message
-}
-
-// GetConfigHandler handles GET /api/config
-func GetConfigHandler(w http.ResponseWriter, r *http.Request) {
-	cfg := config.GetConfig()
-	writeJSONResponse(w, http.StatusOK, cfg)
-}
-
-// UpdateConfigHandler handles POST /api/config
-func UpdateConfigHandler(w http.ResponseWriter, r *http.Request) {
-	var newConfig config.Config
-	if err := json.NewDecoder(r.Body).Decode(&newConfig); err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid request body", err)
+func startPipelineHandler(c *gin.Context) {
+	if err := gstreamer.GetManager().StartPipeline(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	defer r.Body.Close()
-
-	if err := config.SetGlobalConfig(&newConfig); err != nil {
-		writeError(w, http.StatusInternalServerError, "Failed to update config in memory", err)
-		return
-	}
-	if err := config.SaveGlobalConfig(); err != nil {
-		// Log error, but proceed with OK response as config is updated in memory
-		log.Printf("Warning: Failed to save config to disk after update: %v", err)
-	}
-
-	if manager := gstreamer.GetManager(); manager != nil { go manager.RestartPipeline() }
-	go websocket.BroadcastUpdate(config.GetConfig()) // Broadcast the updated config
-	writeOK(w)
+	c.JSON(http.StatusOK, gin.H{"message": "Pipeline started"})
 }
 
-// GetAudioCapabilitiesHandler handles GET /api/capabilities?device=...
-func GetAudioCapabilitiesHandler(w http.ResponseWriter, r *http.Request) {
-	device := r.URL.Query().Get("device")
-	caps, err := gstreamer.GetAudioCapabilities(device)
+func stopPipelineHandler(c *gin.Context) {
+	if err := gstreamer.GetManager().StopPipeline(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Pipeline stopped"})
+}
+
+func listRecordingsHandler(c *gin.Context) {
+	recordings, err := db.ListRecordings()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to get capabilities for '%s'", device), err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve recordings"})
 		return
 	}
-	writeJSONResponse(w, http.StatusOK, caps)
+	c.JSON(http.StatusOK, recordings)
 }
 
-// GetStreamStatusHandler handles GET /api/status (A3)
-func GetStreamStatusHandler(w http.ResponseWriter, r *http.Request) {
-	manager := gstreamer.GetManager()
-	if manager == nil { writeError(w, http.StatusServiceUnavailable, "GStreamer manager not initialized", nil); return }
-	writeJSONResponse(w, http.StatusOK, manager.GetStatus())
-}
-
-// SetStreamStateHandler handles POST /api/stream
-func SetStreamStateHandler(w http.ResponseWriter, r *http.Request) {
-	var req struct { Stream string `json:"stream"`; Enabled bool `json:"enabled"` }
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil { writeError(w, http.StatusBadRequest, "Invalid request body", err); return }
-	defer r.Body.Close()
-	manager := gstreamer.GetManager(); if manager == nil { writeError(w, http.StatusServiceUnavailable, "GStreamer manager not initialized", nil); return }
-
-	var err error
-	switch req.Stream {
-	case "srt": err = manager.ToggleSrtStream(req.Enabled)
-	case "icecast": err = manager.ToggleIcecastStream(req.Enabled)
-	default: writeError(w, http.StatusBadRequest, "Invalid stream type ('srt' or 'icecast')", nil); return
-	}
-	if err != nil { writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to toggle stream %s", req.Stream), err); return }
-	writeOK(w)
-}
-
-// StartRecordingHandler handles POST /api/record/start
-func StartRecordingHandler(w http.ResponseWriter, r *http.Request) {
-	manager := gstreamer.GetManager(); if manager == nil { writeError(w, http.StatusServiceUnavailable, "GStreamer manager not initialized", nil); return }
-	if err := manager.StartRecording(); err != nil { writeError(w, http.StatusInternalServerError, "Failed to start recording", err); return }
-	writeOK(w)
-}
-
-// StopRecordingHandler handles POST /api/record/stop
-func StopRecordingHandler(w http.ResponseWriter, r *http.Request) {
-	manager := gstreamer.GetManager(); if manager == nil { writeError(w, http.StatusServiceUnavailable, "GStreamer manager not initialized", nil); return }
-	if err := manager.StopRecording(); err != nil {
-		// Log error but generally return OK as state is updated anyway
-		log.Printf("Non-critical error stopping recording: %v", err)
-	}
-	writeOK(w)
-}
-
-// --- Recording Handlers using GORM (A6) ---
-
-// GetRecordingsHandler handles GET /api/recordings
-func GetRecordingsHandler(w http.ResponseWriter, r *http.Request) {
-	recordings, err := db.GetRecordings()
-	if err != nil { writeError(w, http.StatusInternalServerError, "Failed to retrieve recordings", err); return }
-	writeJSONResponse(w, http.StatusOK, recordings)
-}
-
-// Helper to get ID from path using standard lib (A1 adaptation, requires Go 1.22+)
-// Ensure your main.go setup uses http.ServeMux correctly for PathValue.
-func getIDFromPathValue(r *http.Request) (uint, error) {
-	idStr := r.PathValue("id")
-	if idStr == "" { return 0, errors.New("missing recording ID in path pattern") }
-	idUint64, err := strconv.ParseUint(idStr, 10, 32)
-	if err != nil { return 0, fmt.Errorf("invalid recording ID '%s' in path: %w", idStr, err) }
-	return uint(idUint64), nil
-}
-
-
-// UpdateRecordingHandler handles PUT /api/recordings/{id}
-func UpdateRecordingHandler(w http.ResponseWriter, r *http.Request) {
-	id, err := getIDFromPathValue(r)
-	if err != nil { writeError(w, http.StatusBadRequest, err.Error(), err); return }
-
-	var reqBody struct { Name string `json:"name"`; Notes *string `json:"notes"`; Genre *string `json:"genre"` }
-	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil { writeError(w, http.StatusBadRequest, "Invalid request body", err); return }
-	defer r.Body.Close()
-
-	if err := db.UpdateRecording(id, reqBody.Name, reqBody.Notes, reqBody.Genre); err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) { writeError(w, http.StatusNotFound, fmt.Sprintf("Recording %d not found", id), err) } else { writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to update recording %d", id), err) }
+func deleteRecordingHandler(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid recording ID format"})
 		return
 	}
-	writeOK(w)
-}
 
-// ToggleProtectHandler handles POST /api/recordings/{id}/protect
-func ToggleProtectHandler(w http.ResponseWriter, r *http.Request) {
-	id, err := getIDFromPathValue(r)
-	if err != nil { writeError(w, http.StatusBadRequest, err.Error(), err); return }
+	// TODO: Add logic to delete the actual file from disk here (Phase 2/4)
 
-	if err := db.ToggleProtect(id); err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) { writeError(w, http.StatusNotFound, fmt.Sprintf("Recording %d not found", id), err) } else { writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to toggle protection for recording %d", id), err) }
+	if err := db.DeleteRecording(uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete recording from database"})
 		return
 	}
-	writeOK(w)
+
+	c.JSON(http.StatusOK, gin.H{"message": "Recording deleted"})
 }
 
-// DeleteRecordingHandler handles DELETE /api/recordings/{id}
-func DeleteRecordingHandler(w http.ResponseWriter, r *http.Request) {
-	id, err := getIDFromPathValue(r)
-	if err != nil { writeError(w, http.StatusBadRequest, err.Error(), err); return }
+// Request body structure for updating recording metadata
+type updateRecordingRequest struct {
+	// Pointers are used for optional fields that may not be present in the request
+	Notes *string `json:"notes"`
+	Genre *string `json:"genre"`
+}
 
-	if err := db.DeleteRecording(id); err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) || strings.Contains(err.Error(),"not found") { writeError(w, http.StatusNotFound, fmt.Sprintf("Recording %d not found", id), err) } else if strings.Contains(err.Error(), "protected") { writeError(w, http.StatusForbidden, err.Error(), err) } else { writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to delete recording %d", id), err) }
+func updateRecordingHandler(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid recording ID format"})
 		return
 	}
-	writeOK(w)
+
+	var reqBody updateRecordingRequest
+	if err := c.ShouldBindJSON(&reqBody); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body format"})
+		return
+	}
+
+	// FIX: Safely dereference pointers to concrete strings for db.UpdateRecording
+	notes := ""
+	if reqBody.Notes != nil {
+		notes = *reqBody.Notes
+	}
+	genre := ""
+	if reqBody.Genre != nil {
+		genre = *reqBody.Genre
+	}
+
+	// db.UpdateRecording now accepts concrete strings (as fixed in internal/db/db.go)
+	if err := db.UpdateRecording(uint(id), notes, genre); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update recording metadata"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Recording metadata updated"})
 }
 
+func getAudioDevicesHandler(c *gin.Context) {
+	// Call the new PipeWire-based device lister
+	devices, err := gstreamer.ListAudioDevices()
+	if err != nil {
+		log.Printf("ERROR: Failed to list audio devices: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve audio devices"})
+		return
+	}
+
+	c.JSON(http.StatusOK, devices)
+}

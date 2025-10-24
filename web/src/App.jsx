@@ -1,6 +1,6 @@
 // web/src/App.jsx
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Settings, Wifi, WifiOff } from 'lucide-react';
+import { Settings, Wifi, WifiOff, AlertTriangle } from 'lucide-react'; // Task 1: Added AlertTriangle
 import { SettingsModal, ConfirmationModal, EditModal } from './components/Modals';
 import StreamControl from './components/StreamControl';
 import RecordingControl from './components/RecordingControl';
@@ -37,10 +37,21 @@ export default function App() {
     return () => { audioEl.removeEventListener('play', handlePlay); audioEl.removeEventListener('pause', handlePause); audioEl.removeEventListener('ended', handleEnded); };
   }, [playingFile]);
 
+  // Task 1: Check for fallback audio source
+  const isFallback = appStatus?.is_fallback_pipeline === true;
+
   if (!config) { return (<div className="bg-gray-900 text-white min-h-screen flex items-center justify-center p-4"><div className="flex flex-col items-center text-center"><Logo className="w-16 h-16 text-gray-600 animate-pulse" /><div className="text-lg text-gray-500 mt-4 mb-2">Loading...</div>{!isConnected && <div className="text-sm text-red-500">(Connecting...)</div>}</div></div>); }
 
   return (
     <div className="bg-gray-900 text-white min-h-screen font-sans p-4 md:p-6 pb-24">
+      {/* Task 1: Add persistent error banner */}
+      {isFallback && (
+        <div className="bg-red-800 text-white p-3 text-sm flex items-center justify-center sticky top-0 z-50 shadow-lg rounded-md mb-4">
+          <AlertTriangle size={18} className="mr-3 flex-shrink-0" />
+          <span className="font-medium">Audio device failed to initialize or is not configured. Reverting to dummy audio source. Please check your audio settings.</span>
+        </div>
+      )}
+
       {modal?.type === 'settings' && <SettingsModal fullConfig={config} audioCaps={audioCaps} onConfigChange={handleConfigChange} onSave={onSaveSettings} onCancel={closeModal} onFetchCaps={fetchAudioCaps} />}
       {modal?.type === 'edit' && <EditModal recording={modal.data} onSave={onSaveEdit} onCancel={closeModal} />}
       {modal?.type === 'delete' && <ConfirmationModal title="Delete?" message={`Delete '${modal.data.Name || modal.data.Filename}'?`} onConfirm={onConfirmDelete} onCancel={closeModal} />}
@@ -67,4 +78,3 @@ export default function App() {
     </div>
   );
 }
-

@@ -1,212 +1,132 @@
 // internal/db/db.go
+// This file manages the SQLite database connection and operations using GORM.
+
 package db
 
 import (
-	"fmt"
 	"log"
+	"nixon/internal/config"
 	"os"
-	"sync"
+	"path/filepath"
 	"time"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
-// Recording represents the database model for a recording.
+var db *gorm.DB
+
+// Recording represents a recorded audio file.
 type Recording struct {
-	ID        uint      `gorm:"primaryKey"`
-	Filename  string    `gorm:"uniqueIndex;not null"`
-	CreatedAt time.Time // Automatically handled by GORM
-	UpdatedAt time.Time // Automatically handled by GORM
-	Name      string
-	Notes     string // Changed from *string to string for simplicity with GORM defaults
-	Genre     string // Changed from *string to string
-	Protected bool      `gorm:"default:false"`
+	gorm.Model
+	Filename  string `gorm:"uniqueIndex"`
+	StartTime time.Time
+	Duration  time.Duration
+	SizeMB    float64
+	Notes     string
+	Genre     string
+	// The fields below are not currently being used, but are reserved for future features:
+	// Tags      string // Comma-separated list of tags
+	// OwnerID   uint   // For future security/multi-user features (Phase 3)
 }
 
-var (
-	db   *gorm.DB // Unexported global variable for the database connection
-	once sync.Once
-	err  error // Store initialization error
-)
+// InitializeDB sets up the database connection and auto-migrates the schema.
+func InitializeDB() {
+	dbPath := filepath.Join(config.GetConfig().AutoRecord.Directory, "nixon.db")
 
-const dbFile = "./studio.db"
+	// Ensure the directory exists before attempting to open the DB
+	if err := os.MkdirAll(config.GetConfig().AutoRecord.Directory, 0755); err != nil {
+		log.Fatalf("FATAL: Could not create database directory: %v", err)
+	}
 
-// Init initializes the database connection and performs auto-migration.
-// Uses sync.Once to ensure it only runs once.
-func Init() error {
-	once.Do(func() {
-		// Configure GORM logger (optional, adjust level as needed)
-		newLogger := logger.New(
-			log.New(os.Stdout, "\r\n", log.LstdFlags), // io writer
-			logger.Config{
-				SlowThreshold:             time.Second, // Slow SQL threshold
-				LogLevel:                  logger.Warn, // Log level (Silent, Error, Warn, Info)
-				IgnoreRecordNotFoundError: true,        // Ignore ErrRecordNotFound error for logger
-				Colorful:                  false,       // Disable color
-			},
-		)
-
-		log.Println("Initializing database connection...")
-		db, err = gorm.Open(sqlite.Open(dbFile), &gorm.Config{
-			Logger: newLogger,
-		})
-		if err != nil {
-			err = fmt.Errorf("failed to connect database: %w", err)
-			log.Printf("ERROR: %v", err) // Log the error during init
-			return
-		}
-
-		log.Println("Running database auto-migration...")
-		// AutoMigrate will create tables, missing columns, and missing indexes.
-		// It will NOT delete unused columns or change existing column types.
-		migrateErr := db.AutoMigrate(&Recording{})
-		if migrateErr != nil {
-			err = fmt.Errorf("failed to auto-migrate database: %w", migrateErr)
-			log.Printf("ERROR: %v", err)
-			// Close DB if migration fails?
-			sqlDB, _ := db.DB()
-			if sqlDB != nil {
-				sqlDB.Close()
-			}
-			db = nil // Ensure db is nil on error
-			return
-		}
-		log.Println("Database initialization complete.")
+	var err error
+	db, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{
+		// Logger: logger.New(log.New(os.Stdout, "\r\n", log.LstdFlags), logger.Config{...}) // Optionally enable GORM logging here
 	})
-	return err // Return the stored error from the first run
+	if err != nil {
+		log.Fatalf("FATAL: Failed to connect to database: %v", err)
+	}
+
+	// Migrate the schema
+	if err := db.AutoMigrate(&Recording{}); err != nil {
+		log.Fatalf("FATAL: Failed to auto-migrate database schema: %v", err)
+	}
+
+	log.Println("Database initialized and migrated successfully.")
 }
 
-// GetDB returns the initialized database connection.
-// Returns nil if initialization failed.
-func GetDB() *gorm.DB {
-	if db == nil {
-		// Log might already have happened in Init()
-		// log.Println("Warning: GetDB() called but database initialization failed or wasn't called.")
-		return nil
+// CreateRecording inserts a new recording entry into the database.
+// FIX: Renamed from CreateRecording to AddRecording and added a Filename parameter
+// to align with gstreamer.go's expected call (db.AddRecording).
+func AddRecording(filename string, startTime time.Time) (*Recording, error) {
+	rec := &Recording{
+		Filename:  filename,
+		StartTime: startTime,
+		Notes:     "",
+		Genre:     "",
 	}
-	return db
-}
-
-// Close closes the database connection.
-func Close() {
-	if db != nil {
-		log.Println("Closing database connection...")
-		sqlDB, _ := db.DB()
-		if sqlDB != nil {
-			sqlDB.Close()
-		}
-		db = nil // Reset global var
-	}
-}
-
-// --- CRUD Operations using GORM ---
-
-// AddRecording adds a new recording to the database.
-// Takes a pointer to allow GORM to populate the ID.
-// Corrected signature: returns only error
-func AddRecording(rec *Recording) error {
-	dbConn := GetDB() // Use GetDB to ensure safe access
-	if dbConn == nil {
-		return fmt.Errorf("database not initialized")
-	}
-	result := dbConn.Create(rec) // GORM handles SQL generation and execution
+	result := db.Create(rec)
 	if result.Error != nil {
-		return fmt.Errorf("failed to add recording %s: %w", rec.Filename, result.Error)
+		log.Printf("ERROR: Failed to create recording %s: %v", filename, result.Error)
+		return nil, result.Error
 	}
-	if result.RowsAffected == 0 {
-		// This might indicate a unique constraint violation or other issue
-		return fmt.Errorf("failed to add recording %s (no rows affected, possibly duplicate filename?)", rec.Filename)
-	}
-	log.Printf("Recording '%s' added to DB with ID %d", rec.Filename, rec.ID)
-	return nil // Return only error (nil on success)
+	return rec, nil
 }
 
-// GetRecordings retrieves all recordings, ordered by creation date descending.
-func GetRecordings() ([]Recording, error) {
-	dbConn := GetDB()
-	if dbConn == nil {
-		return nil, fmt.Errorf("database not initialized")
-	}
-	var recordings []Recording
-	result := dbConn.Order("created_at desc").Find(&recordings)
-	if result.Error != nil {
-		return nil, fmt.Errorf("failed to query recordings: %w", result.Error)
-	}
-	return recordings, nil
-}
-
-// UpdateRecording updates the editable fields of a recording.
-func UpdateRecording(id uint, name, notes, genre string) error {
-	dbConn := GetDB()
-	if dbConn == nil {
-		return fmt.Errorf("database not initialized")
-	}
-	result := dbConn.Model(&Recording{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"name":  name,
+// UpdateRecording updates the Notes and Genre for a specific recording ID.
+func UpdateRecording(id uint, notes string, genre string) error {
+	result := db.Model(&Recording{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"notes": notes,
 		"genre": genre,
 	})
 	if result.Error != nil {
-		return fmt.Errorf("failed to update recording ID %d: %w", id, result.Error)
+		log.Printf("ERROR: Failed to update recording ID %d: %v", id, result.Error)
+		return result.Error
 	}
-	if result.RowsAffected == 0 {
-		return fmt.Errorf("recording ID %d not found for update", id)
-	}
-	log.Printf("Updated recording ID %d", id)
 	return nil
 }
 
-// ToggleProtect toggles the protected status of a recording.
-func ToggleProtect(id uint) error {
-	dbConn := GetDB()
-	if dbConn == nil {
-		return fmt.Errorf("database not initialized")
-	}
-	result := dbConn.Model(&Recording{}).Where("id = ?", id).Update("protected", gorm.Expr("NOT protected"))
+// CompleteRecording updates the size and duration of a recording after it finishes.
+func CompleteRecording(filename string, duration time.Duration, sizeMB float64) error {
+	result := db.Model(&Recording{}).Where("filename = ?", filename).Updates(map[string]interface{}{
+		"duration": duration,
+		"sizemb":   sizeMB,
+	})
 	if result.Error != nil {
-		return fmt.Errorf("failed to toggle protection for recording ID %d: %w", id, result.Error)
+		log.Printf("ERROR: Failed to complete recording %s: %v", filename, result.Error)
+		return result.Error
 	}
-	if result.RowsAffected == 0 {
-		return fmt.Errorf("recording ID %d not found for protection toggle", id)
-	}
-	log.Printf("Toggled protection for recording ID %d", id)
 	return nil
 }
 
-// DeleteRecording deletes a recording record from the database.
-// Does NOT delete the associated file. File deletion should happen first.
+// ListRecordings retrieves all recordings, sorted by start time.
+func ListRecordings() ([]Recording, error) {
+	var recordings []Recording
+	result := db.Order("start_time desc").Find(&recordings)
+	if result.Error != nil {
+		log.Printf("ERROR: Failed to retrieve recordings: %v", result.Error)
+		return nil, result.Error
+	}
+	return recordings, nil
+}
+
+// DeleteRecording deletes a recording entry by its ID.
 func DeleteRecording(id uint) error {
-	dbConn := GetDB()
-	if dbConn == nil {
-		return fmt.Errorf("database not initialized")
-	}
-	result := dbConn.Delete(&Recording{}, id)
+	result := db.Delete(&Recording{}, id)
 	if result.Error != nil {
-		return fmt.Errorf("failed to delete recording ID %d: %w", id, result.Error)
+		log.Printf("ERROR: Failed to delete recording ID %d: %v", id, result.Error)
+		return result.Error
 	}
-	if result.RowsAffected == 0 {
-		return fmt.Errorf("recording ID %d not found for deletion", id)
-	}
-	log.Printf("Deleted recording record ID %d from DB", id)
 	return nil
 }
 
-// GetRecording retrieves a single recording by ID (needed for file deletion check).
-func GetRecording(id uint) (*Recording, error) {
-	dbConn := GetDB()
-	if dbConn == nil {
-		return nil, fmt.Errorf("database not initialized")
-	}
+// GetRecordingByFilename retrieves a recording by its filename.
+func GetRecordingByFilename(filename string) (*Recording, error) {
 	var rec Recording
-	result := dbConn.First(&rec, id) // Find record by primary key
+	result := db.Where("filename = ?", filename).First(&rec)
 	if result.Error != nil {
-		if result.Error == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("recording ID %d not found", id)
-		}
-		return nil, fmt.Errorf("failed to get recording ID %d: %w", id, result.Error)
+		// Do not log error if it's a simple 'record not found'
+		return nil, result.Error
 	}
 	return &rec, nil
 }
-

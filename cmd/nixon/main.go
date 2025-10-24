@@ -39,7 +39,7 @@ func main() {
 
 	// Initialize GStreamer Manager, providing the broadcast callback (A3 Fix)
 	// Pass websocket.BroadcastUpdate directly as the callback function
-	if err := gstreamer.Init(cfg, websocket.BroadcastUpdate); err != nil {
+	if err := gstreamer.Init(websocket.BroadcastUpdate); err != nil {
 		log.Printf("Warning: Failed to initialize GStreamer manager: %v. Server starting without pipeline.", err)
 	} else {
 		log.Println("GStreamer manager initialized.")
@@ -89,7 +89,8 @@ func main() {
 		// Stop GStreamer pipeline gracefully
 		if manager := gstreamer.GetManager(); manager != nil {
 			log.Println("Stopping GStreamer pipeline...")
-			manager.StopPipelineGraceful()
+			// Task 4: Correct function call
+			manager.StopPipeline()
 		}
 
 		// Shutdown HTTP server
@@ -108,4 +109,3 @@ func main() {
 
 	log.Println("Nixon server exiting.")
 }
-
