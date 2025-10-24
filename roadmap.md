@@ -20,7 +20,7 @@ This phase establishes the foundational features of the Nixon appliance, based o
 
 This phase focuses on hardening the new architecture and completing the partially-implemented features from the refactor.
 
-* \[ \] **(Highest Priority) Dummy Audio Source:** Implement a fallback to `audiotestsrc` within the GStreamer pipeline. If the configured `pipewiresrc` device fails to initialize at startup, the pipeline must failover to this test source. This prevents a backend crash and allows the user to access the UI to correct the audio configuration.
+* \[ \] **(Highest Priority) Dummy Audio Source:** Implement a fallback to `audiotestsrc` within the GStreamer pipeline. If the configured `pipewiresrc` device fails to initialize at startup, the pipeline must failover to this test source. This prevents a backend crash and allows the user to access the UI to correct the audio configuration. The dummy audio source should be configured as the system default audio source.
 * \[ \] **Hardware Capability Detection:** Implement the backend API endpoint (`/api/capabilities`) that executes `arecord --dump-hw-params` and parses the output for supported sample rates and bit depths. The frontend "Audio" tab must be connected to this endpoint to dynamically populate its dropdowns.
 * \[ \] **Channel Mapping:** Implement the GStreamer logic (`deinterleave`/`interleave`) to dynamically select the stereo pair specified by the `master_channels` array in the config.
 * \[ \] **Disk Management (Auto-purge):** Implement a background task to automatically delete the oldest *unprotected* recordings when disk usage exceeds a configurable threshold.
