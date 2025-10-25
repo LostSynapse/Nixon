@@ -1,228 +1,289 @@
-// internal/api/router.go
-// This file sets up the API routes for configuration, control, and data access.
-
 package api
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
+	"nixon/internal/common"
 	"nixon/internal/config"
-	"nixon/internal/db"
-	"nixon/internal/gstreamer"
-	"nixon/internal/websocket"
+	"nixon/internal/control"
+	"nixon/internal/pipewire"
+	"nixon/internal/websocket" // FIXED: Added missing import
+	"path/filepath"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
+	"github.com/gorilla/mux"
 )
 
-// InitRouter initializes the Gin router and defines all API endpoints.
-func InitRouter() *gin.Engine {
-	// Gin is used here for its simplicity and robustness, though for a lean appliance
-	// a custom net/http router could be considered later.
-	router := gin.Default()
+// Router struct holds dependencies
+type Router struct {
+	ctrl *control.ControlManager
+	hub  *websocket.Hub
+}
 
-	// Serve the static React assets from the 'web/dist' directory
-	// In the future, this will be replaced by an embedded Go server solution.
-	router.StaticFile("/", "./web/dist/index.html")
-	router.Static("/assets", "./web/dist/assets")
-
-	// API routes group
-	api := router.Group("/api")
-	{
-		// --- Status and Configuration ---
-
-		// GET /api/status - Returns the current combined status of the application
-		api.GET("/status", getStatusHandler)
-
-		// GET /api/config - Returns the current application configuration
-		api.GET("/config", getConfigHandler)
-
-		// POST /api/config - Updates and saves the entire application configuration
-		api.POST("/config", updateConfigHandler)
-
-		// GET /api/devices - Returns a list of available audio input devices
-		api.GET("/devices", getAudioDevicesHandler)
-
-		// --- Control ---
-
-		// POST /api/start - Starts the GStreamer audio pipeline
-		api.POST("/start", startPipelineHandler)
-
-		// POST /api/stop - Stops the GStreamer audio pipeline
-		api.POST("/stop", stopPipelineHandler)
-
-		// --- Database/Recordings ---
-
-		// GET /api/recordings - Lists all recordings
-		api.GET("/recordings", listRecordingsHandler)
-
-		// DELETE /api/recordings/:id - Deletes a specific recording entry
-		api.DELETE("/recordings/:id", deleteRecordingHandler)
-
-		// PUT /api/recordings/:id - Updates metadata (notes/genre) for a recording
-		api.PUT("/recordings/:id", updateRecordingHandler)
+// NewRouter creates a new router with dependencies
+func NewRouter(ctrl *control.ControlManager, hub *websocket.Hub) *mux.Router {
+	r := &Router{
+		ctrl: ctrl,
+		hub:  hub,
 	}
 
-	// WebSocket route
-	router.GET("/ws", websocket.HandleConnections)
+	router := mux.NewRouter()
+
+	// WebSocket handler
+	// FIXED: wsHandler now defined and uses the hub
+	router.HandleFunc("/ws", r.wsHandler)
+
+	// API routes
+	api := router.PathPrefix("/api").Subrouter()
+
+	// Config
+	api.HandleFunc("/config", r.getConfigHandler).Methods("GET")
+	api.HandleFunc("/config", r.saveConfigHandler).Methods("POST")
+	api.HandleFunc("/config/reload", r.reloadConfigHandler).Methods("POST")
+
+	// Audio Devices
+	api.HandleFunc("/devices", r.listAudioDevicesHandler).Methods("GET")
+	api.HandleFunc("/devices/{name}/capabilities", r.getAudioCapabilitiesHandler).Methods("GET")
+
+	// Status
+	api.HandleFunc("/status", r.getStatusHandler).Methods("GET")
+
+	// Recording
+	api.HandleFunc("/recordings", r.startRecordingHandler).Methods("POST")
+	api.HandleFunc("/recordings", r.stopRecordingHandler).Methods("DELETE")
+	api.HandleFunc("/recordings", r.listRecordingsHandler).Methods("GET")
+	api.HandleFunc("/recordings/{id}", r.getRecordingHandler).Methods("GET")
+	api.HandleFunc("/recordings/{id}", r.updateRecordingHandler).Methods("PUT")
+	api.HandleFunc("/recordings/{id}", r.deleteRecordingHandler).Methods("DELETE")
+
+	// Streaming
+	api.HandleFunc("/streams/srt", r.startSrtStreamHandler).Methods("POST")
+	api.HandleFunc("/streams/srt", r.stopSrtStreamHandler).Methods("DELETE")
+	api.HandleFunc("/streams/icecast", r.startIcecastStreamHandler).Methods("POST")
+	api.HandleFunc("/streams/icecast", r.stopIcecastStreamHandler).Methods("DELETE")
 
 	return router
 }
 
-// --- Handler Implementations ---
+// wsHandler handles websocket connections
+// FIXED: This handler now uses the hub passed to the Router
+func (rt *Router) wsHandler(w http.ResponseWriter, r *http.Request) {
+	// GetHub() is internal, ServeWs is the handler function
+	websocket.ServeWs(rt.hub, w, r)
+}
 
-func getStatusHandler(c *gin.Context) {
-	// Combine GStreamer status with monitoring data for a comprehensive view
-	gstStatus := gstreamer.GetManager().GetStatus()
+// getConfigHandler returns the current configuration
+func (rt *Router) getConfigHandler(w http.ResponseWriter, r *http.Request) {
+	cfg := rt.ctrl.GetConfig()
+	json.NewEncoder(w).Encode(cfg)
+}
+
+// saveConfigHandler saves the configuration
+func (rt *Router) saveConfigHandler(w http.ResponseWriter, r *http.Request) {
+	var cfg config.Config
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := rt.ctrl.SaveConfig(cfg); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Broadcast config update
+	// FIXED: Broadcast requires a map
+	cfgMap := configStructToMap(cfg)
+	rt.hub.BroadcastUpdate(cfgMap)
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// reloadConfigHandler reloads the configuration from disk
+func (rt *Router) reloadConfigHandler(w http.ResponseWriter, r *http.Request) {
+	// FIXED: ReloadConfig returns an error, not the config
+	if err := rt.ctrl.ReloadConfig(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Get the newly loaded config
+	cfg := rt.ctrl.GetConfig()
+
+	// Broadcast config update
+	// FIXED: Broadcast requires a map
+	cfgMap := configStructToMap(cfg)
+	rt.hub.BroadcastUpdate(cfgMap)
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// listAudioDevicesHandler returns available audio devices
+func (rt *Router) listAudioDevicesHandler(w http.ResponseWriter, r *http.Request) {
+	devices, err := rt.ctrl.ListAudioDevices()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(devices)
+}
+
+// getAudioCapabilitiesHandler returns device capabilities
+func (rt *Router) getAudioCapabilitiesHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	name := vars["name"]
+
+	caps, err := rt.ctrl.GetAudioCapabilities(name)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(caps)
+}
+
+// getStatusHandler returns the current audio status
+func (rt *Router) getStatusHandler(w http.ResponseWriter, r *http.Request) {
+	status := rt.ctrl.GetAudioStatus()
+	json.NewEncoder(w).Encode(status)
+}
+
+// startRecordingHandler starts a new recording
+func (rt *Router) startRecordingHandler(w http.ResponseWriter, r *http.Request) {
+	rec, err := rt.ctrl.StartRecording()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(rec)
+}
+
+// stopRecordingHandler stops the current recording
+func (rt *Router) stopRecordingHandler(w http.ResponseWriter, r *http.Request) {
+	// FIXED: StopRecording returns one value (error)
+	if err := rt.ctrl.StopRecording(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// listRecordingsHandler returns all recordings
+func (rt *Router) listRecordingsHandler(w http.ResponseWriter, r *http.Request) {
+	recordings, err := rt.ctrl.GetAllRecordings()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(recordings)
+}
+
+// getRecordingHandler returns a single recording
+func (rt *Router) getRecordingHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	// FIXED: Convert string ID to uint
+	id, err := strconv.ParseUint(vars["id"], 10, 32)
+	if err != nil {
+		http.Error(w, "Invalid recording ID", http.StatusBadRequest)
+		return
+	}
+
+	rec, err := rt.ctrl.GetRecordingByID(uint(id))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	json.NewEncoder(w).Encode(rec)
+}
+
+// updateRecordingHandler updates a recording's metadata
+func (rt *Router) updateRecordingHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	// FIXED: Convert string ID to uint
+	id, err := strconv.ParseUint(vars["id"], 10, 32)
+	if err != nil {
+		http.Error(w, "Invalid recording ID", http.StatusBadRequest)
+		return
+	}
+
+	var reqBody struct {
+		Notes string `json:"notes"`
+		Genre string `json:"genre"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// FIXED: UpdateRecording signature
+	if err := rt.ctrl.UpdateRecording(uint(id), reqBody.Notes, reqBody.Genre); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// deleteRecordingHandler deletes a recording
+func (rt *Router) deleteRecordingHandler(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	// FIXED: Convert string ID to uint
+	id, err := strconv.ParseUint(vars["id"], 10, 32)
+	if err != nil {
+		http.Error(w, "Invalid recording ID", http.StatusBadRequest)
+		return
+	}
+
+	if err := rt.ctrl.DeleteRecording(uint(id)); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// startSrtStreamHandler starts the SRT stream
+func (rt *Router) startSrtStreamHandler(w http.ResponseWriter, r *http.Request) {
+	if err := rt.ctrl.StartStream("srt"); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// stopSrtStreamHandler stops the SRT stream
+func (rt *Router) stopSrtStreamHandler(w http.ResponseWriter, r *http.Request) {
+	if err := rt.ctrl.StopStream("srt"); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// startIcecastStreamHandler starts the Icecast stream
+func (rt *Router) startIcecastStreamHandler(w http.ResponseWriter, r *http.Request) {
+	if err := rt.ctrl.StartStream("icecast"); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// stopIcecastStreamHandler stops the Icecast stream
+func (rt *Router) stopIcecastStreamHandler(w http.ResponseWriter, r *http.Request) {
+	if err := rt.ctrl.StopStream("icecast"); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+// configStructToMap converts config struct to map for websocket broadcast
+func configStructToMap(cfg config.Config) map[string]interface{} {
+	// This is a robust way to convert a struct to the map required by websocket
+	var cfgMap map[string]interface{}
+	data, _ := json.Marshal(cfg)
+	json.Unmarshal(data, &cfgMap)
 	
-	// Create a map to combine GStreamer status and monitoring data
-	statusMap := make(map[string]interface{})
-	
-	// Marshal and unmarshal GStreamer status to convert it to a map[string]interface{}
-	gstBytes, _ := json.Marshal(gstStatus)
-	json.Unmarshal(gstBytes, &statusMap)
-
-	// Add listener and disk info from the manager's state
-	current, peak := gstreamer.GetManager().GetListeners()
-	statusMap["listener_current"] = current
-	statusMap["listener_peak"] = peak
-	statusMap["disk_usage"] = gstreamer.GetManager().GetDiskUsage()
-
-	c.JSON(http.StatusOK, statusMap)
+	// Add message type for client-side routing
+	cfgMap["type"] = "config_update"
+	return cfgMap
 }
 
-func getConfigHandler(c *gin.Context) {
-	c.JSON(http.StatusOK, config.GetConfig())
-}
-
-// Request body structure for configuration updates
-type updateConfigRequest struct {
-	config.Config
-}
-
-func updateConfigHandler(c *gin.Context) {
-	var reqBody updateConfigRequest
-
-	if err := c.ShouldBindJSON(&reqBody); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body format"})
-		return
-	}
-
-	// FIX: Use the new SaveGlobalConfig function
-	if err := config.SaveGlobalConfig(reqBody.Config); err != nil {
-		log.Printf("ERROR: Failed to save config: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save configuration"})
-		return
-	}
-
-	// FIX: Convert the struct to a map[string]interface{} before broadcasting
-	// This is necessary because the WebSocket broadcast function expects a map for JSON serialization.
-	cfgMap := make(map[string]interface{})
-	cfgBytes, _ := json.Marshal(reqBody.Config)
-	json.Unmarshal(cfgBytes, &cfgMap)
-
-	websocket.BroadcastUpdate(map[string]interface{}{
-		"config": cfgMap,
-	})
-
-	// Re-start pipeline to apply new settings if it was running (e.g., sample rate change)
-	gstreamer.GetManager().RestartPipeline()
-
-	c.JSON(http.StatusOK, gin.H{"message": "Configuration updated successfully"})
-}
-
-func startPipelineHandler(c *gin.Context) {
-	if err := gstreamer.GetManager().StartPipeline(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"message": "Pipeline started"})
-}
-
-func stopPipelineHandler(c *gin.Context) {
-	if err := gstreamer.GetManager().StopPipeline(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"message": "Pipeline stopped"})
-}
-
-func listRecordingsHandler(c *gin.Context) {
-	recordings, err := db.ListRecordings()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve recordings"})
-		return
-	}
-	c.JSON(http.StatusOK, recordings)
-}
-
-func deleteRecordingHandler(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid recording ID format"})
-		return
-	}
-
-	// TODO: Add logic to delete the actual file from disk here (Phase 2/4)
-
-	if err := db.DeleteRecording(uint(id)); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete recording from database"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Recording deleted"})
-}
-
-// Request body structure for updating recording metadata
-type updateRecordingRequest struct {
-	// Pointers are used for optional fields that may not be present in the request
-	Notes *string `json:"notes"`
-	Genre *string `json:"genre"`
-}
-
-func updateRecordingHandler(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 32)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid recording ID format"})
-		return
-	}
-
-	var reqBody updateRecordingRequest
-	if err := c.ShouldBindJSON(&reqBody); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body format"})
-		return
-	}
-
-	// FIX: Safely dereference pointers to concrete strings for db.UpdateRecording
-	notes := ""
-	if reqBody.Notes != nil {
-		notes = *reqBody.Notes
-	}
-	genre := ""
-	if reqBody.Genre != nil {
-		genre = *reqBody.Genre
-	}
-
-	// db.UpdateRecording now accepts concrete strings (as fixed in internal/db/db.go)
-	if err := db.UpdateRecording(uint(id), notes, genre); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update recording metadata"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "Recording metadata updated"})
-}
-
-func getAudioDevicesHandler(c *gin.Context) {
-	// Call the new PipeWire-based device lister
-	devices, err := gstreamer.ListAudioDevices()
-	if err != nil {
-		log.Printf("ERROR: Failed to list audio devices: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve audio devices"})
-		return
-	}
-
-	c.JSON(http.StatusOK, devices)
-}

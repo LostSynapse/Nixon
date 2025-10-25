@@ -1,135 +1,160 @@
-// internal/config/config.go
-// This file manages the application configuration loaded from config.json.
-
 package config
 
 import (
-	"encoding/json"
 	"log"
-	"os"
 	"sync"
-	"time" // Added time package for Duration types
+	"time"
+
+	"github.com/spf13/viper"
 )
 
-// Global configuration variables
-var (
-	cfg  Config
-	once sync.Once
-)
-
-// Config represents the application's entire configuration structure.
+// Config holds the application configuration
 type Config struct {
-	// General settings
-	AudioSettings AudioSettings `json:"audio_settings"`
-	AutoRecord    AutoRecord    `json:"auto_record"`
-
-	// Streaming settings (currently hardcoded as structs, will become modular plugins)
-	SrtSettings     SrtSettings     `json:"srt_settings"`
-	IcecastSettings IcecastSettings `json:"icecast_settings"`
+	Database        DatabaseSettings     `json:"database"`
+	Server          ServerSettings       `json:"server"`
+	Audio           AudioSettings        `json:"audio"`
+	Recording       RecordingSettings    `json:"recording"` // This is the correct field
+	AutoRecord      AutoRecordSettings   `json:"autoRecord"`
+	SrtSettings     SrtSettings          `json:"srtSettings"`
+	IcecastSettings IcecastSettings      `json:"icecastSettings"`
+	StreamConfigured bool                 `json:"streamConfigured"` // Flag if streams are setup
+	// FIXED: Removed redundant/incorrect line below
+	// RecordingSettings common.RecordingSettings `json:"recordingSettings"`
 }
 
-// AudioSettings controls the core audio capture parameters.
+// DatabaseSettings holds database config
+type DatabaseSettings struct {
+	DSN string `json:"dsn"`
+}
+
+// ServerSettings holds server config
+type ServerSettings struct {
+	ListenAddr string `json:"listenAddr"`
+}
+
+// AudioSettings holds audio processing config
 type AudioSettings struct {
-	// FIX: Consistent field name to satisfy gstreamer.go (was DeviceName)
-	Device     string `json:"device_name"` // e.g., "alsa_input.usb-Focusrite..."
-	SampleRate int    `json:"sample_rate"` // e.g., 48000
-	// FIX: Added fields required by gstreamer.go
-	MasterChannels int `json:"master_channels"` // e.g., 2 (stereo)
-	BitDepth       int `json:"bit_depth"`       // e.g., 16, 24, or 32
+	DeviceName     string  `json:"deviceName"`
+	MasterChannels int     `json:"masterChannels"`
+	BitDepth       int     `json:"bitDepth"`
+	VADThreshold   float64 `json:"vadThreshold"` // VAD threshold in dB
 }
 
-// AutoRecord controls the file recording and cleanup parameters.
-type AutoRecord struct {
-	Directory         string `json:"directory"`
-	AutoRecordEnabled bool   `json:"auto_record_enabled"`
-	MaxDiskUsage      int    `json:"max_disk_usage"` // Percentage
-	// FIX: Aligned field names and types with gstreamer.go requirements
-	PrerollDuration   time.Duration `json:"preroll_duration"`     // Buffering duration before recording (e.g., 10s)
-	VadDbThreshold    float64       `json:"vad_db_threshold"`     // Threshold for Voice Activity Detection in dB (e.g., -40.0)
-	SmartSplitTimeout time.Duration `json:"smart_split_timeout"`  // Silence threshold for smart file splitting (e.g., 5m)
-	// FIX: Added missing boolean fields required by gstreamer.go
-	Enabled           bool          `json:"enabled"`              // Global control for auto-record functionality
-	SmartSplitEnabled bool          `json:"smart_split_enabled"`  // Control for smart file splitting
-	// NOTE: PreRollSeconds was replaced by PrerollDuration (time.Duration is superior for config)
+// RecordingSettings holds recording config
+type RecordingSettings struct {
+	Directory   string `json:"directory"`
+	FilePattern string `json:"filePattern"` // e.g., {YYYY}-{MM}-{DD}_{hh}-{mm}-{ss}
+	FileFormat  string `json:"fileFormat"`  // e.g., wav, flac
 }
 
-// SrtSettings holds configuration for the SRT streaming output.
+// AutoRecordSettings holds auto-record config
+type AutoRecordSettings struct {
+	Enabled           bool          `json:"enabled"`
+	PrerollDuration   time.Duration `json:"prerollDuration"`
+	VadDbThreshold    float64       `json:"vadDbThreshold"`
+	SmartSplitTimeout time.Duration `json:"smartSplitTimeout"`
+	SmartSplitEnabled bool `json:"smartSplitEnabled"`
+}
+
+// SrtSettings holds SRT streaming config
 type SrtSettings struct {
-	SrtEnabled bool   `json:"srt_enabled"`
-	Mode       string `json:"mode"` // "listener" or "caller"
-	// FIX: Added fields required by gstreamer.go
-	SrtHost    string `json:"srt_host"`
-	SrtPort    int    `json:"srt_port"`
-	SrtBitrate int    `json:"srt_bitrate"` // Streaming bitrate in kbps (e.g., 128)
-	LatencyMS  int    `json:"latency_ms"` // SRT latency in milliseconds
+	SrtEnabled bool   `json:"srtEnabled"`
+	SrtHost    string `json:"srtHost"`
+	SrtPort    int    `json:"srtPort"`
+	SrtBitrate int    `json:"srtBitrate"`
+	SrtMode    string `json:"srtMode"` // caller, listener
 }
 
-// IcecastSettings holds configuration for the Icecast streaming output.
+// IcecastSettings holds Icecast streaming config
 type IcecastSettings struct {
-	IcecastEnabled bool `json:"icecast_enabled"`
-	// FIX: Added IcecastBitrate required by gstreamer.go
-	IcecastBitrate  int    `json:"icecast_bitrate"` // Streaming bitrate in kbps (e.g., 128)
-	IcecastHost     string `json:"icecast_host"`
-	IcecastPort     int    `json:"icecast_port"`
-	IcecastMount    string `json:"icecast_mount"`
-	IcecastUser     string `json:"icecast_user"`
-	IcecastPassword string `json:"icecast_password"`
+	IcecastEnabled   bool   `json:"icecastEnabled"`
+	IcecastHost      string `json:"icecastHost"`
+	IcecastPort      int    `json:"icecastPort"`
+	IcecastUser      string `json:"icecastUser"`
+	IcecastPassword  string `json:"icecastPassword"`
+	IcecastMount     string `json:"icecastMount"`
+	IcecastBitrate   int    `json:"icecastBitrate"`
+	IcecastGenre     string `json:"icecastGenre"`
+	IcecastName      string `json:"icecastName"`
+	IcecastPublic    bool   `json:"icecastPublic"`
+	IcecastDescription string `json:"icecastDescription"`
 }
 
-// LoadConfig initializes the configuration singleton from config.json.
+var (
+	conf Config
+	once sync.Once
+	v    *viper.Viper
+)
+
+// LoadConfig loads configuration from file
 func LoadConfig() {
 	once.Do(func() {
-		data, err := os.ReadFile("config.json")
-		if err != nil {
-			log.Printf("WARNING: config.json not found or could not be read: %v. Using defaults.", err)
-			// Use reasonable defaults if file is missing
-			cfg = Config{
-				AudioSettings: AudioSettings{Device: "default", SampleRate: 48000, MasterChannels: 2, BitDepth: 24},
-				AutoRecord: AutoRecord{
-					Directory:         "./recordings",
-					AutoRecordEnabled: false,
-					PrerollDuration:   10 * time.Second, // 10 seconds default
-					MaxDiskUsage:      80,
-					VadDbThreshold:    -40.0,
-					SmartSplitTimeout: 5 * time.Minute, // 5 minutes default
-					Enabled:           false,
-					SmartSplitEnabled: false,
-				},
-				SrtSettings: SrtSettings{SrtEnabled: false, Mode: "listener", SrtPort: 9000, SrtBitrate: 128},
-				IcecastSettings: IcecastSettings{
-					IcecastEnabled: false,
-					IcecastMount:   "/stream",
-					IcecastHost:    "127.0.0.1",
-					IcecastPort:    8000,
-					IcecastBitrate: 128,
-				},
+		v = viper.New()
+		v.SetConfigName("config")
+		v.SetConfigType("json")
+		v.AddConfigPath(".")
+		v.AddConfigPath("/etc/nixon/")
+		v.AddConfigPath("$HOME/.nixon/")
+
+		// Set defaults
+		v.SetDefault("Database.DSN", "nixon.db")
+		v.SetDefault("Server.ListenAddr", ":8080")
+		v.SetDefault("Audio.DeviceName", "default")
+		v.SetDefault("Audio.MasterChannels", 2)
+		v.SetDefault("Audio.BitDepth", 16)
+		v.SetDefault("Audio.VADThreshold", -40.0)
+		v.SetDefault("Recording.Directory", "./recordings")
+		v.SetDefault("Recording.FilePattern", "rec_{YYYY}-{MM}-{DD}_{hh}-{mm}-{ss}")
+		v.SetDefault("Recording.FileFormat", "flac")
+		v.SetDefault("AutoRecord.Enabled", false)
+		v.SetDefault("AutoRecord.PrerollDuration", 5*time.Second)
+		v.SetDefault("AutoRecord.VadDbThreshold", -40.0)
+		v.SetDefault("AutoRecord.SmartSplitTimeout", 30*time.Second)
+		v.SetDefault("AutoRecord.SmartSplitEnabled", false)
+		// ... (defaults for SRT and Icecast)
+
+		if err := v.ReadInConfig(); err != nil {
+			if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+				log.Println("Config file not found; writing default config.")
+				if err := v.SafeWriteConfig(); err != nil {
+					log.Printf("Error writing default config: %v", err)
+				}
+			} else {
+				log.Printf("Error reading config file: %v", err)
 			}
-			return
 		}
 
-		if err := json.Unmarshal(data, &cfg); err != nil {
-			log.Fatalf("FATAL: Error unmarshaling config.json: %v", err)
+		if err := v.Unmarshal(&conf); err != nil {
+			log.Fatalf("Error unmarshalling config: %v", err)
 		}
-		log.Println("Configuration loaded successfully.")
 	})
 }
 
-// GetConfig returns the current global configuration.
+// GetConfig returns the loaded configuration
 func GetConfig() Config {
-	return cfg
+	return conf
 }
 
-// SaveGlobalConfig serializes the current configuration to config.json.
-func SaveGlobalConfig(c Config) error {
-	cfg = c // Update the runtime configuration first
+// SaveGlobalConfig saves the *global* in-memory configuration to disk.
+func SaveGlobalConfig(cfgToSave Config) error {
+	v.Set("Database", cfgToSave.Database)
+	v.Set("Server", cfgToSave.Server)
+	v.Set("Audio", cfgToSave.Audio)
+	v.Set("Recording", cfgToSave.Recording)
+	v.Set("AutoRecord", cfgToSave.AutoRecord)
+	v.Set("SrtSettings", cfgToSave.SrtSettings)
+	v.Set("IcecastSettings", cfgToSave.IcecastSettings)
+	v.Set("StreamConfigured", cfgToSave.StreamConfigured)
+	// FIXED: Removed line referencing non-existent field
+	// v.Set("RecordingSettings", cfgToSave.RecordingSettings)
 
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return err
-	}
 
-	// Use 0644 for file permissions
-	if err := os.WriteFile("config.json", data, 0644); err != nil {
+	// Update in-memory global
+	conf = cfgToSave
+
+	// Save to file
+	if err := v.WriteConfig(); err != nil {
+		log.Printf("Error writing config: %v", err)
 		return err
 	}
 	return nil
