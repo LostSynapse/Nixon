@@ -4,14 +4,14 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"nixon-server/internal/control"
-	"nixon-server/internal/websocket"
+	"nixon/internal/control"
+	"nixon/internal/websocket"
 	"os"
 	"path/filepath"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
-	"github.comcom/go-chi/chi/v5/middleware"
+	"github.com/go-chi/chi/v5/middleware"
 )
 
 // NewRouter creates a new router with all the application's routes.

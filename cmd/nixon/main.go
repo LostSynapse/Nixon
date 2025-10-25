@@ -3,10 +3,10 @@ package main
 import (
 	"log"
 	"net/http"
-
 	"nixon/internal/api"
 	"nixon/internal/config"
 	"nixon/internal/control"
+	"nixon/internal/websocket"
 )
 
 func main() {
@@ -25,6 +25,9 @@ func main() {
 
 	// Start background tasks
 	ctrl.StartBackgroundTasks()
+
+	// Start the WebSocket message broadcaster
+	go websocket.HandleMessages()
 
 	// Setup router
 	router := api.NewRouter(ctrl)

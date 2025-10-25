@@ -32,6 +32,12 @@ type AudioDevice struct {
 	Description string `json:"description"`
 }
 
+// AudioSource represents a specific audio source, like a microphone, used by PipeWire.
+type AudioSource struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 // AudioCapabilities defines the supported formats/rates of a device
 type AudioCapabilities struct {
 	Formats     []string `json:"formats"`
@@ -50,4 +56,3 @@ type Recording struct {
 	Notes     string        `json:"notes"`
 	Genre     string        `json:"genre"`
 }
-
