@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"nixon/internal/control"
-	"nixon/internal/websocket"
+	"nixon-server/internal/control"
+	"nixon-server/internal/websocket"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -36,19 +36,16 @@ func NewRouter(ctrl *control.Manager) *chi.Mux {
 
 	// Serve the SPA
 	workDir, _ := os.Getwd()
-	staticPath := filepath.Join(workDir, "web", "dist")
-	staticFS := http.Dir(staticPath)
-	fileServer := http.StripPrefix("/", http.FileServer(staticFS))
+	staticDir := http.Dir(filepath.Join(workDir, "web", "dist"))
+	fileServer := http.FileServer(staticDir)
 
-	r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
-		// Check if a file exists for the given path
-		if _, err := staticFS.Open(r.URL.Path); os.IsNotExist(err) {
-			// File does not exist, serve index.html
-			http.ServeFile(w, r, filepath.Join(staticPath, "index.html"))
-			return
-		}
-		// Otherwise, serve the static file
-		fileServer.ServeHTTP(w, r)
+	// Serve static assets
+	r.Handle("/assets/*", fileServer)
+	r.Handle("/nixon_logo.svg", fileServer)
+
+	// For all other requests, serve the SPA's entry point
+	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, filepath.Join(workDir, "web", "dist", "index.html"))
 	})
 
 	return r
