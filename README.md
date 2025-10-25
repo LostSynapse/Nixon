@@ -13,4 +13,4 @@ With this setup, it's set and forget.
 
 Take a look at manual_setup.md if you want to check it out.
 
-the automatic recording feature is currently broken but a fix/ overhaul to the backend is under way, and it will be the foundation for a completely redesigned scope.  aka managed feature bloat.
+currently not completing a build. attempted AI refactor to change audio backend to bypass a bug with an include and it failed miserably

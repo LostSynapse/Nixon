@@ -1,146 +1,101 @@
 package control
 
 import (
+	"fmt"
 	"log"
-	"nixon/internal/common"
 	"nixon/internal/config"
-	"nixon/internal/db"
 	"nixon/internal/pipewire"
+	"nixon/internal/websocket"
 	"sync"
 	"time"
 )
 
-// ControlManager implements the ControlHandler interface.
-// It acts as the intermediary between the API/plugins and the core services.
-type ControlManager struct {
-	conf         config.Config
-	audioManager *pipewire.AudioManager
-	managerLock  sync.RWMutex
-}
-
 var (
-	manager *ControlManager
-	once    sync.Once
+	manager      *Manager
+	managerMutex = &sync.Mutex{}
 )
 
-// GetManager returns the singleton instance of the ControlManager.
-func GetManager(conf config.Config, audioManager *pipewire.AudioManager) *ControlManager {
-	once.Do(func() {
-		manager = &ControlManager{
-			conf:         conf,
-			audioManager: audioManager,
+// Manager orchestrates the streaming and recording processes.
+type Manager struct {
+	pwManager *pipewire.Manager
+	// More fields would be added here, e.g., for managing recordings, stream outputs, etc.
+}
+
+// GetManager initializes and returns the singleton Manager instance.
+func GetManager() (*Manager, error) {
+	managerMutex.Lock()
+	defer managerMutex.Unlock()
+
+	if manager == nil {
+		cfg := config.GetConfig()
+		pwManager, err := pipewire.NewManager(cfg.Pipewire.Socket)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize Pipewire manager: %w", err)
 		}
-	})
-	return manager
-}
 
-// --- Interface Implementation ---
-
-// StartRecording tells the audio manager to start recording.
-func (m *ControlManager) StartRecording() (string, error) {
-	log.Println("Control: Received StartRecording command")
-	return m.audioManager.StartRecording()
-}
-
-// StopRecording tells the audio manager to stop recording.
-func (m *ControlManager) StopRecording() error {
-	log.Println("Control: Received StopRecording command")
-	return m.audioManager.StopRecording()
-}
-
-// GetAudioStatus retrieves the current status from the audio manager.
-func (m *ControlManager) GetAudioStatus() common.AudioStatus {
-	return m.audioManager.GetAudioStatus()
-}
-
-// ReloadConfig reloads configuration and propagates it to all managers.
-func (m *ControlManager) ReloadConfig() {
-	log.Println("Control: Received ReloadConfig command")
-	// 1. Reload config from disk
-	config.LoadConfig()
-	// 2. Get the reloaded config
-	m.managerLock.Lock()
-	m.conf = config.GetConfig()
-	m.managerLock.Unlock()
-
-	// 3. Notify subsystems
-	m.audioManager.ReloadConfig()
-	log.Println("Control: Configuration reloaded and propagated to audio manager.")
-}
-
-// ListAudioDevices retrieves available audio devices.
-func (m *ControlManager) ListAudioDevices() ([]common.AudioDevice, error) {
-	return m.audioManager.ListAudioDevices()
-}
-
-// GetAudioCapabilities retrieves capabilities for a specific device.
-func (mC *ControlManager) GetAudioCapabilities(deviceName string) (common.AudioCapabilities, error) {
-	return mC.audioManager.GetAudioCapabilities(deviceName)
-}
-
-// --- Config Methods ---
-
-// GetConfig returns the current in-memory configuration.
-func (m *ControlManager) GetConfig() config.Config {
-	m.managerLock.RLock()
-	defer m.managerLock.RUnlock()
-	return m.conf
-}
-
-// SaveConfig saves the configuration to disk.
-func (m *ControlManager) SaveConfig(cfg config.Config) error {
-	// Update in-memory config
-	m.managerLock.Lock()
-	m.conf = cfg
-	m.managerLock.Unlock()
-
-	// Save to disk
-	// FIXED: Pass the config struct to the save function
-	return config.SaveGlobalConfig(cfg)
-}
-
-// --- Stream Methods ---
-
-// StartStream tells the audio manager to start a specific stream.
-func (m *ControlManager) StartStream(streamName string) error {
-	log.Printf("Control: Received StartStream command for: %s", streamName)
-	return m.audioManager.StartStream(streamName)
-}
-
-// StopStream tells the audio manager to stop a specific stream.
-func (m *ControlManager) StopStream(streamName string) error {
-	log.Printf("Control: Received StopStream command for: %s", streamName)
-	return m.audioManager.StopStream(streamName)
-}
-
-// --- Recording Management Methods ---
-
-// GetAllRecordings retrieves all recordings from the database.
-func (m *ControlManager) GetAllRecordings() ([]common.Recording, error) {
-	return db.GetAllRecordings()
-}
-
-// GetRecordingByID retrieves a single recording by its ID.
-func (m *ControlManager) GetRecordingByID(id uint) (*common.Recording, error) {
-	return db.GetRecordingByID(id)
-}
-
-// UpdateRecording updates a recording's details in the database.
-func (m *ControlManager) UpdateRecording(id uint, notes string, genre string, endTime time.Time, duration time.Duration) error {
-	return db.UpdateRecording(id, notes, genre, endTime, duration)
-}
-
-// DeleteRecording deletes a recording from the database.
-func (m *ControlManager) DeleteRecording(id uint) error {
-	// TODO: Delete the actual file from disk
-	/*
-		rec, err := db.GetRecordingByID(id)
-		if err == nil && rec != nil {
-			// Delete file
+		manager = &Manager{
+			pwManager: pwManager,
 		}
-	*/
+	}
 
-	// Delete from database
-	return db.DeleteRecording(id)
+	return manager, nil
 }
 
+// StartBackgroundTasks starts long-running processes for the application.
+func (m *Manager) StartBackgroundTasks() {
+	log.Println("Starting control manager background tasks...")
+	go m.monitorVAD()
+}
+
+// monitorVAD checks for voice activity and broadcasts updates.
+func (m *Manager) monitorVAD() {
+	log.Println("Starting VAD monitoring...")
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		// In a real implementation, we would check VAD status here.
+		// For now, we'll simulate broadcasting a status update.
+		websocket.Broadcast("{\"type\": \"vad_status\", \"active\": false}")
+	}
+}
+
+// StartStream starts a stream.
+func (m *Manager) StartStream(streamType string) error {
+	// Logic to start a stream, e.g., SRT or WebRTC
+	log.Printf("Starting %s stream...", streamType)
+	return nil
+}
+
+// StopStream stops a stream.
+func (m *Manager) StopStream(streamType string) error {
+	log.Printf("Stopping %s stream...", streamType)
+	return nil
+}
+
+// StartRecording starts a recording.
+func (m *Manager) StartRecording() (uint, error) {
+	// Logic to start a recording
+	log.Println("Starting recording...")
+	// Return a dummy ID for now
+	return 1, nil
+}
+
+// StopRecording stops a recording.
+func (m *Manager) StopRecording() error {
+	log.Println("Stopping recording...")
+	return nil
+}
+
+// DeleteRecording deletes a recording.
+func (m *Manager) DeleteRecording(id uint) error {
+	log.Printf("Deleting recording %d...", id)
+	return nil
+}
+
+// GetRecordings lists all recordings.
+func (m *Manager) GetRecordings() ([]string, error) {
+	log.Println("Getting recordings...")
+	// Return a dummy list for now
+	return []string{"rec1.wav", "rec2.wav"}, nil
+}
