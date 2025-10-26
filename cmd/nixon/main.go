@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"log" // Standard log package is still in use here
+	"nixon/internal/logger"
 	"net/http"
 
 	"nixon/internal/api"
@@ -16,7 +16,7 @@ func main() {
 	// CHANGED: Call config.LoadConfig() directly.
 	// It now populates config.AppConfig globally and handles its own errors internally.
 	config.LoadConfig()
-
+    logger.InitLogger()
 	// REMOVED: Previous 'if err != nil { log.Fatalf(...) }' block
 	// REMOVED: Previous 'config.SetConfig(cfg)' call
 	// These are no longer needed as config.LoadConfig manages the global AppConfig.
@@ -24,7 +24,7 @@ func main() {
 	// Initialize the Control Manager
 	ctrl, err := control.GetManager()
 	if err != nil {
-		log.Fatalf("Error initializing control manager: %v", err) // Standard log.Fatalf still used
+		logger.Log.Fatal().Err(err).Msg("Error initializing control manager")
 	}
 
 	// Start background tasks
@@ -40,8 +40,8 @@ func main() {
 	// CHANGED: Access config directly from config.AppConfig.Web.ListenAddress
 	listenAddress := fmt.Sprintf(":%s", config.AppConfig.Web.ListenAddress)
 
-	log.Printf("Server starting on %s", listenAddress) // Standard log.Printf still used
+	logger.Log.Info().Str("listen_address", listenAddress).Msg("Server starting")
 	if err := http.ListenAndServe(listenAddress, router); err != nil {
-		log.Fatalf("Server failed: %v", err) // Standard log.Fatalf still used
+		logger.Log.Fatal().Err(err).Msg("Server failed")
 	}
 }

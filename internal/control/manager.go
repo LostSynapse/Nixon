@@ -2,7 +2,7 @@ package control
 
 import (
 	"fmt"
-	"log"
+	"nixon/internal/logger"
 	"nixon/internal/common"
 	"nixon/internal/config"
 	"nixon/internal/pipewire"
@@ -44,13 +44,13 @@ func GetManager() (*Manager, error) {
 
 // StartBackgroundTasks starts long-running processes for the application.
 func (m *Manager) StartBackgroundTasks() {
-	log.Println("Starting control manager background tasks...")
+	logger.Log.Info().Msg("Starting control manager background tasks...")
 	go m.monitorVAD()
 }
 
 // monitorVAD checks for voice activity and broadcasts updates.
 func (m *Manager) monitorVAD() {
-	log.Println("Starting VAD monitoring...")
+	logger.Log.Info().Msg("Starting VAD monitoring...")
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
@@ -64,20 +64,20 @@ func (m *Manager) monitorVAD() {
 // StartStream starts a stream.
 func (m *Manager) StartStream(streamType string) error {
 	// Logic to start a stream, e.g., SRT or WebRTC
-	log.Printf("Starting %s stream...", streamType)
+	logger.Log.Info().Str("stream_type", streamType).Msg("Starting stream")
 	return nil
 }
 
 // StopStream stops a stream.
 func (m *Manager) StopStream(streamType string) error {
-	log.Printf("Stopping %s stream...", streamType)
+	logger.Log.Info().Str("stream_type", streamType).Msg("Stopping stream")
 	return nil
 }
 
 // StartRecording starts a recording.
 func (m *Manager) StartRecording() (uint, error) {
 	// Logic to start a recording
-	log.Println("Starting recording...")
+	logger.Log.Info().Msg("Starting recording")
 
 	// Placeholder: Return a dummy recording ID and no error.
 	// In a real implementation, this would interact with the database.
@@ -86,7 +86,7 @@ func (m *Manager) StartRecording() (uint, error) {
 
 // StopRecording stops the current recording.
 func (m *Manager) StopRecording() error {
-	log.Println("Stopping recording...")
+	logger.Log.Info().Msg("Stopping recording")
 	return nil
 }
 
@@ -99,13 +99,13 @@ func (m *Manager) GetAudioDevices() ([]string, error) {
 // GetRecordings retrieves all recordings.
 func (m *Manager) GetRecordings() ([]common.Recording, error) {
 	// Placeholder implementation to satisfy the router.
-	log.Println("Manager: Getting recordings...")
+	logger.Log.Debug().Msg("Manager: Getting recordings")
 	return []common.Recording{}, nil
 }
 
 // DeleteRecording removes a recording.
 func (m *Manager) DeleteRecording(id uint) error {
 	// Placeholder implementation to satisfy the router.
-	log.Printf("Manager: Deleting recording %d...", id)
+	logger.Log.Info().Uint("recording_id", id).Msg("Manager: Deleting recording")
 	return nil
 }
