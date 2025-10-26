@@ -1,7 +1,7 @@
 package config
 
 import (
-	"log"
+	"nixon/internal/logger"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -98,14 +98,14 @@ func LoadConfig() {
 	err := viper.ReadInConfig()
 	if err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			log.Println("Config file not found, using defaults.")
+			logger.Log.Info().Msg("Config file not found, using defaults.")
 		} else {
-			log.Fatalf("Fatal error config file: %s \n", err)
+			logger.Log.Fatal().Err(err).Msg("Fatal error reading config file")
 		}
 	}
 
 	err = viper.Unmarshal(&AppConfig)
 	if err != nil {
-		log.Fatalf("Unable to decode into struct, %v", err)
+		logger.Log.Fatal().Err(err).Msg("Unable to decode config into struct")
 	}
 }
