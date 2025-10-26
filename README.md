@@ -13,4 +13,4 @@ With this setup, it's set and forget.
 
 Take a look at manual_setup.md if you want to check it out.
 
-currently not completing a build. attempted AI refactor to change audio backend to bypass a bug with an include and it failed miserably
+system builds, but is otherwise not functional at this time, as UI elements are placeholders
