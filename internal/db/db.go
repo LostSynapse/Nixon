@@ -3,21 +3,67 @@ package db
 import (
 	"fmt" // ADDED: Required for error formatting
 	"time"
-
+    "ontext"
+	"nixon/internal/logger"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	gormlogger "gorm.io/gorm/logger"
 	"nixon/internal/common" // IMPORT: Use canonical structs
 )
 
 var dbConn *gorm.DB
 
+// GormZerologger is a custom GORM logger that uses Zerolog.
+type GormZerologger struct {
+	logger zerolog.Logger
+}
+
+// NewGormZerologger creates a new GORM logger instance.
+func NewGormZerologger() *GormZerologger {
+	return &GormZerologger{
+		logger: logger.Log.With().Str("component", "gorm").Logger(),
+	}
+}
+
+func (l *GormZerologger) LogMode(level gormlogger.LogLevel) gormlogger.Interface {
+	return l // We can add level switching logic here later if needed.
+}
+
+func (l *GormZerologger) Info(ctx context.Context, msg string, data ...interface{}) {
+	l.logger.Info().Msgf(msg, data...)
+}
+
+func (l *GormZerologger) Warn(ctx context.Context, msg string, data ...interface{}) {
+	l.logger.Warn().Msgf(msg, data...)
+}
+
+func (l *GormZerologger) Error(ctx context.Context, msg string, data ...interface{}) {
+	l.logger.Error().Msgf(msg, data...)
+}
+
+func (l *GormZerologger) Trace(ctx context.Context, begin time.Time, fc func() (sql string, rowsAffected int64), err error) {
+	elapsed := time.Since(begin)
+	sql, rows := fc()
+	event := l.logger.Debug().
+		Dur("elapsed_ms", elapsed).
+		Int64("rows", rows).
+		Str("sql", sql)
+
+	if err != nil {
+		event.Err(err).Msg("GORM query error")
+	} else {
+		event.Msg("GORM query")
+	}
+}
+
+
 // Init initializes the database connection.
 func Init(dsn string) error {
 	var err error
 	dbConn, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info),
+		Logger: NewGormZerologger().LogMode(gormlogger.Info),
 	})
+	
 	if err != nil {
 		return err
 	}

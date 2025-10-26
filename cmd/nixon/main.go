@@ -12,11 +12,12 @@ import (
 )
 
 func main() {
+	logger.InitLogger()
 	// Load configuration
 	// CHANGED: Call config.LoadConfig() directly.
 	// It now populates config.AppConfig globally and handles its own errors internally.
 	config.LoadConfig()
-    logger.InitLogger()
+    
 	// REMOVED: Previous 'if err != nil { log.Fatalf(...) }' block
 	// REMOVED: Previous 'config.SetConfig(cfg)' call
 	// These are no longer needed as config.LoadConfig manages the global AppConfig.

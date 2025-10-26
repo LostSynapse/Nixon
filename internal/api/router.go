@@ -2,23 +2,46 @@ package api
 
 import (
 	"encoding/json"
-	"log"
+	"nixon/internal/logger"
 	"net/http"
 	"nixon/internal/control"
 	"nixon/internal/websocket"
 	"os"
 	"path/filepath"
 	"strconv"
-
+	"github.com/rs/zerolog"
+	"time"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
+// NewStructuredLogger creates a new middleware for structured logging with Zerolog.
+func NewStructuredLogger(logger zerolog.Logger) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		fn := func(w http.ResponseWriter, r *http.Request) {
+			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
+			start := time.Now()
+
+			defer func() {
+				logger.Info().
+					Str("method", r.Method).
+					Stringer("url", r.URL).
+					Int("status", ww.Status()).
+					Int("bytes", ww.BytesWritten()).
+					Dur("latency_ms", time.Since(start)).
+					Msg("Request completed")
+			}()
+
+			next.ServeHTTP(ww, r)
+		}
+		return http.HandlerFunc(fn)
+	}
+}
 
 // NewRouter creates a new router with all the application's routes.
 func NewRouter(ctrl *control.Manager) *chi.Mux {
 	r := chi.NewRouter()
 
-	r.Use(middleware.Logger)
+	r.Use(NewStructuredLogger(logger.Log))
 	r.Use(middleware.Recoverer)
 
 	// WebSocket endpoint
@@ -127,7 +150,7 @@ func handleDeleteRecording(ctrl *control.Manager) http.HandlerFunc {
 			return
 		}
 		if err := ctrl.DeleteRecording(uint(id)); err != nil {
-			log.Printf("Error deleting recording: %v", err)
+			logger.Log.Error().Err(err).Uint64("id", id).Msg("Error deleting recording")
 			http.Error(w, "Failed to delete recording", http.StatusInternalServerError)
 			return
 		}
