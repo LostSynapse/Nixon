@@ -14,45 +14,45 @@ const (
 
 // AudioStatus defines the real-time status of the audio manager
 type AudioStatus struct {
-	State          AudioState `json:"state"`
-	CurrentRecFile string     `json:"currentRecFile"`
-	IsAutoRec      bool       `json:"isAutoRec"`
+	State          AudioState `json:"state,omitempty"`
+	CurrentRecFile string     `json:"currentRecFile,omitempty"`
+	IsAutoRec      bool       `json:"isAutoRec,omitempty"`
 
 	// --- Fields required by pipewire.go ---
-	ActiveStreams map[string]bool `json:"activeStreams"`
-	VADStatus     bool            `json:"vadStatus"`
-	MasterPeak    float64         `json:"masterPeak"`    // Current master peak in dB
-	LastVADEvent  time.Time       `json:"lastVadEvent"` // Last time VAD triggered
+	ActiveStreams map[string]bool `json:"activeStreams,omitempty"`
+	VADStatus     bool            `json:"vadStatus,omitempty"`
+	MasterPeak    float64         `json:"masterPeak,omitempty"`    // Current master peak in dB
+	LastVADEvent  time.Time       `json:"lastVadEvent,omitempty"` // Last time VAD triggered
 }
 
 // AudioDevice represents a single discoverable audio device
 type AudioDevice struct {
-	DeviceName  string `json:"deviceName"`
-	Driver      string `json:"driver"`
-	Description string `json:"description"`
+	DeviceName  string `json:"deviceName,omitempty"`
+	Driver      string `json:"driver,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 // AudioSource represents a specific audio source, like a microphone, used by PipeWire.
 type AudioSource struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name,omitempty"`
 }
 
 // AudioCapabilities defines the supported formats/rates of a device
 type AudioCapabilities struct {
-	Formats     []string `json:"formats"`
-	SampleRates []int    `json:"sampleRates"`
-	Channels    []int    `json:"channels"`
+	Formats     []string `json:"formats,omitempty"`
+	SampleRates []int    `json:"sampleRates,omitempty"`
+	Channels    []int    `json:"channels,omitempty"`
 }
 
 // Recording represents a single recording entry in the database
 type Recording struct {
-	ID        uint          `json:"id" gorm:"primaryKey"`
-	Filename  string        `json:"filename"`
-	StartTime time.Time     `json:"startTime"`
-	EndTime   time.Time     `json:"endTime"`
-	Duration  time.Duration `json:"duration"`
-	FileSize  int64         `json:"fileSize"`
-	Notes     string        `json:"notes"`
-	Genre     string        `json:"genre"`
+	ID        uint          `json:"id,omitempty" gorm:"primaryKey"`
+	Filename  string        `json:"filename,omitempty"`
+	StartTime time.Time     `json:"startTime,omitempty"`
+	EndTime   time.Time     `json:"endTime,omitempty"`
+	Duration  time.Duration `json:"duration,omitempty"`
+	FileSize  int64         `json:"fileSize,omitempty"`
+	Notes     string        `json:"notes,omitempty"`
+	Genre     string        `json:"genre,omitempty"`
 }

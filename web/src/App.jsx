@@ -1,80 +1,115 @@
-// web/src/App.jsx
-import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Settings, Wifi, WifiOff, AlertTriangle } from 'lucide-react'; // Task 1: Added AlertTriangle
-import { SettingsModal, ConfirmationModal, EditModal } from './components/Modals';
-import StreamControl from './components/StreamControl';
-import RecordingControl from './components/RecordingControl';
+import { useState } from 'react';
+import './App.css';
 import Logo from './components/Logo';
-import DiskUsage from './components/DiskUsage';
+import RecordingControl from './components/RecordingControl';
+import StreamControl from './components/StreamControl';
 import RecordingsList from './components/RecordingsList';
-import { useNixonApi } from './hooks/useNixonApi';
+import DiskUsage from './components/DiskUsage';
+import useNixonApi from './hooks/useNixonApi';
+import { SettingsModal, AudioDeviceModal } from './components/Modals';
 
-export default function App() {
-  const [modal, setModal] = useState(null);
-  const { appStatus, config, recordings, isConnected, toggleSRT, toggleIcecast, toggleRecording, handleConfigChange, handleSaveSettings, fetchAudioCaps, audioCaps, updateRecording, toggleProtectRecording, deleteRecording } = useNixonApi();
+function App() {
+  const {
+    appStatus, config, recordings, audioCaps, isConnected,
+    handleConfigChange, handleSaveSettings, fetchAudioCaps,
+    toggleSRT, toggleIcecast, toggleRecording,
+    updateRecording, toggleProtectRecording, deleteRecording
+  } = useNixonApi();
 
-  const openSettingsModal = useCallback(() => { setModal({ type: 'settings' }); if (config?.audio_settings?.device) { fetchAudioCaps(config.audio_settings.device); } }, [config, fetchAudioCaps]);
-  const openEditModal = useCallback((recording) => setModal({ type: 'edit', data: recording }), []);
-  const openDeleteModal = useCallback((recording) => setModal({ type: 'delete', data: recording }), []);
-  const openUnlockModal = useCallback((recording) => setModal({ type: 'unlock', data: recording }), []);
-  const closeModal = useCallback(() => setModal(null), []);
+  const [isSettingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [isAudioDeviceModalOpen, setAudioDeviceModalOpen] = useState(false);
 
-  const onSaveSettings = useCallback(async () => { const success = await handleSaveSettings(); if (success) { closeModal(); } else { alert("Failed to save settings."); } }, [handleSaveSettings, closeModal]);
-  const onSaveEdit = useCallback(async (editedRecording) => { const success = await updateRecording(editedRecording.ID, editedRecording.Name, editedRecording.Notes, editedRecording.Genre); if (success) closeModal(); else alert("Failed to save changes."); }, [updateRecording, closeModal]); // Use GORM fields
-  const onConfirmDelete = useCallback(async () => { if (modal?.type === 'delete' && modal.data?.ID) { const success = await deleteRecording(modal.data.ID); if (success) closeModal(); else alert("Failed to delete."); } }, [modal, deleteRecording, closeModal]); // Use GORM ID
-  const onConfirmUnlock = useCallback(async () => { if (modal?.type === 'unlock' && modal.data?.ID) { const success = await toggleProtectRecording(modal.data.ID); if (success) closeModal(); else alert("Failed to unlock."); } }, [modal, toggleProtectRecording, closeModal]); // Use GORM ID
-
-  const [playingFile, setPlayingFile] = useState(null);
-  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
-  const audioRef = useRef(null);
-  const handlePlayPause = useCallback((filename) => { const newSrc = "/recordings/" + filename; if (playingFile === newSrc && isAudioPlaying) { audioRef.current?.pause(); } else { setPlayingFile(newSrc); } }, [playingFile, isAudioPlaying]);
-
-  useEffect(() => {
-    const audioEl = audioRef.current; if (!audioEl) return;
-    const handlePlay = () => setIsAudioPlaying(true); const handlePause = () => setIsAudioPlaying(false); const handleEnded = () => { setIsAudioPlaying(false); setPlayingFile(null); };
-    audioEl.addEventListener('play', handlePlay); audioEl.addEventListener('pause', handlePause); audioEl.addEventListener('ended', handleEnded);
-    if (playingFile) { audioEl.play().catch(e => { console.error("Audio play failed:", e); setIsAudioPlaying(false); setPlayingFile(null); }); } else { audioEl.pause(); }
-    return () => { audioEl.removeEventListener('play', handlePlay); audioEl.removeEventListener('pause', handlePause); audioEl.removeEventListener('ended', handleEnded); };
-  }, [playingFile]);
-
-  // Task 1: Check for fallback audio source
-  const isFallback = appStatus?.is_fallback_pipeline === true;
-
-  if (!config) { return (<div className="bg-gray-900 text-white min-h-screen flex items-center justify-center p-4"><div className="flex flex-col items-center text-center"><Logo className="w-16 h-16 text-gray-600 animate-pulse" /><div className="text-lg text-gray-500 mt-4 mb-2">Loading...</div>{!isConnected && <div className="text-sm text-red-500">(Connecting...)</div>}</div></div>); }
+  const handleOpenAudioDeviceModal = () => {
+    fetchAudioCaps(); // Fetch the latest device capabilities
+    setAudioDeviceModalOpen(true);
+  };
 
   return (
-    <div className="bg-gray-900 text-white min-h-screen font-sans p-4 md:p-6 pb-24">
-      {/* Task 1: Add persistent error banner */}
-      {isFallback && (
-        <div className="bg-red-800 text-white p-3 text-sm flex items-center justify-center sticky top-0 z-50 shadow-lg rounded-md mb-4">
-          <AlertTriangle size={18} className="mr-3 flex-shrink-0" />
-          <span className="font-medium">Audio device failed to initialize or is not configured. Reverting to dummy audio source. Please check your audio settings.</span>
+    <div className="bg-gray-900 text-white min-h-screen font-sans">
+      <header className="container mx-auto px-4 py-6 flex justify-between items-center">
+        <Logo isConnected={isConnected} appState={appStatus?.state} />
+        <h1 className="text-4xl font-bold">Nixon</h1>
+        <div className="flex items-center space-x-2">
+          <button onClick={() => setSettingsModalOpen(true)} className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded">
+            Settings
+          </button>
+          <button onClick={handleOpenAudioDeviceModal} className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded">
+            Audio Devices
+          </button>
         </div>
+      </header>
+
+      <main className="container mx-auto px-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+
+          {/* Column 1: Controls */}
+          <div className="space-y-8">
+            <RecordingControl
+              isRecording={appStatus?.state === 'recording'}
+              onToggleRecording={toggleRecording}
+              isAutoRec={config?.autoRecord?.enabled}
+            />
+            <StreamControl
+              icecastConfig={config?.icecast}
+              srtConfig={config?.srt}
+              onToggleIcecast={toggleIcecast}
+              onToggleSRT={toggleSRT}
+            />
+          </div>
+
+          {/* Column 2: Recordings */}
+          <div className="lg:col-span-2 space-y-8">
+            <RecordingsList
+              recordings={recordings}
+              onUpdate={updateRecording}
+              onDelete={deleteRecording}
+              onToggleProtect={toggleProtectRecording}
+            />
+          </div>
+
+          {/* Column 3 (becomes footer on small screens): System Stats */}
+          <div className="md:col-span-2 lg:col-span-3 space-y-4">
+            <h2 className="text-2xl font-semibold border-b-2 border-gray-700 pb-2">System Status</h2>
+            {!isConnected && <p className="text-red-500">Connecting to server...</p>}
+            {isConnected && appStatus && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <DiskUsage used={appStatus.diskUsage} />
+                <div className="bg-gray-800 p-4 rounded-lg text-center">
+                  <h3 className="text-lg font-medium">CPU Usage</h3>
+                  <p className="text-3xl font-bold">{appStatus.cpuUsage?.toFixed(2) ?? 'N/A'}%</p>
+                </div>
+                <div className="bg-gray-800 p-4 rounded-lg text-center">
+                  <h3 className="text-lg font-medium">Memory Usage</h3>
+                  <p className="text-3xl font-bold">{appStatus.memoryUsage?.toFixed(2) ?? 'N/A'}%</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </main>
+
+      {isSettingsModalOpen && (
+        <SettingsModal
+          config={config}
+          onConfigChange={handleConfigChange}
+          onSave={handleSaveSettings}
+          onClose={() => setSettingsModalOpen(false)}
+        />
       )}
 
-      {modal?.type === 'settings' && <SettingsModal fullConfig={config} audioCaps={audioCaps} onConfigChange={handleConfigChange} onSave={onSaveSettings} onCancel={closeModal} onFetchCaps={fetchAudioCaps} />}
-      {modal?.type === 'edit' && <EditModal recording={modal.data} onSave={onSaveEdit} onCancel={closeModal} />}
-      {modal?.type === 'delete' && <ConfirmationModal title="Delete?" message={`Delete '${modal.data.Name || modal.data.Filename}'?`} onConfirm={onConfirmDelete} onCancel={closeModal} />}
-      {modal?.type === 'unlock' && <ConfirmationModal title="Unlock?" message={`Unlock '${modal.data.Name || modal.data.Filename}'?`} onConfirm={onConfirmUnlock} onCancel={closeModal} />}
+      {isAudioDeviceModalOpen && (
+        <AudioDeviceModal
+          audioCaps={audioCaps}
+          onClose={() => setAudioDeviceModalOpen(false)}
+        />
+      )}
 
-      <div className="max-w-7xl mx-auto">
-        <header className="flex justify-between items-center mb-6">
-          <div className="flex items-center"><Logo className="w-8 h-8 mr-3 text-gray-400" /><h1 className="text-2xl md:text-3xl font-bold">Nixon</h1></div>
-          <div className="flex items-center space-x-4">
-            <button onClick={openSettingsModal} className="text-gray-400 hover:text-white" title="Settings"><Settings size={24} /></button>
-            <div className="flex items-center text-sm" title={isConnected ? 'Connected' : 'Disconnected'}>{isConnected ? <Wifi size={18} className="text-green-500" /> : <WifiOff size={18} className="text-red-500" />}</div>
-          </div>
-        </header>
-        <main>
-          <section className="mb-6"><h2 className="text-xl font-semibold border-b-2 border-gray-700 pb-2 mb-4">Live Controls</h2><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {config.srt_settings?.srt_enabled && <StreamControl title="SRT Stream" status={appStatus.is_streaming_srt} onToggle={toggleSRT} />}
-            {config.icecast_settings?.icecast_enabled && <StreamControl title="Icecast Stream" status={appStatus.is_streaming_icecast} onToggle={toggleIcecast} listeners={appStatus.listeners} peak={appStatus.listener_peak} />}
-            <RecordingControl status={appStatus.is_recording} currentFile={appStatus.current_recording_file} onToggle={() => toggleRecording(!appStatus.is_recording)} onAutoToggle={() => { handleConfigChange({ target: { name: 'auto_record.enabled', type: 'checkbox', checked: !config.auto_record?.enabled }}); handleSaveSettings(); }} autoRecordEnabled={config.auto_record?.enabled} /> {/* Split button removed for simplicity, add back if needed */}
-          </div></section>
-          <RecordingsList recordings={recordings} onPlayPause={handlePlayPause} playingFile={playingFile} isAudioPlaying={isAudioPlaying} onEdit={openEditModal} onProtect={(rec) => rec.Protected ? openUnlockModal(rec) : toggleProtectRecording(rec.ID)} onDelete={openDeleteModal} />
-        </main>
-      </div>
-      <DiskUsage usage={appStatus.disk_usage_percent} /> <audio ref={audioRef} src={playingFile} className="hidden" />
+
+      <footer className="container mx-auto px-4 py-6 text-center text-gray-500">
+        <p>&copy; 2024 Nixon. All Rights Reserved.</p>
+      </footer>
     </div>
   );
 }
+
+export default App;
