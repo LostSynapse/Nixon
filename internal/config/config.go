@@ -83,7 +83,7 @@ func LoadConfig() {
 	viper.AutomaticEnv()
 
 	// Set default values here
-	viper.SetDefault("web.listenAddress", ":8080")
+	viper.SetDefault("web.listenAddress", "8080")
 	viper.SetDefault("database.path", "nixon.db")
 	viper.SetDefault("audio.deviceName", "default")
 	viper.SetDefault("audio.sampleRate", 48000)
