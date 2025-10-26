@@ -4,7 +4,7 @@ import (
 	"log"
 	"strings"
 
-	"github.comcom/spf13/viper"
+	"github.com/spf13/viper"
 )
 
 // Config holds the application configuration
