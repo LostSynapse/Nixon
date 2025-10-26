@@ -15,6 +15,7 @@ type Config struct {
 	Icecast  IcecastSettings  `mapstructure:"icecast"`
 	SRT      SrtSettings      `mapstructure:"srt"`
 	Database DatabaseSettings `mapstructure:"database"`
+	Pipewire PipewireSettings `mapstructure:"pipewire"`
 }
 
 // WebSettings configures the web server
@@ -65,6 +66,11 @@ type DatabaseSettings struct {
 	Path string `mapstructure:"path"`
 }
 
+// PipewireSettings configures the Pipewire connection
+type PipewireSettings struct {
+	Socket string `mapstructure:"socket"`
+}
+
 var AppConfig Config
 
 // LoadConfig reads configuration from file or environment variables.
@@ -76,7 +82,7 @@ func LoadConfig() {
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.AutomaticEnv()
 
-	// --- THIS BLOCK WAS ADDED TO IMPLEMENT TASK 1.2 FROM DEVPLAN.TXT ---
+	// Set default values here
 	viper.SetDefault("web.listenAddress", ":8080")
 	viper.SetDefault("database.path", "nixon.db")
 	viper.SetDefault("audio.deviceName", "default")
@@ -87,7 +93,7 @@ func LoadConfig() {
 	viper.SetDefault("autoRecord.maxRecordMins", 60)
 	viper.SetDefault("icecast.enabled", false)
 	viper.SetDefault("srt.enabled", false)
-	// --- END OF ADDED BLOCK ---
+	viper.SetDefault("pipewire.socket", "") // Default socket lets the library auto-discover
 
 	err := viper.ReadInConfig()
 	if err != nil {

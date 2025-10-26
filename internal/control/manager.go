@@ -27,7 +27,7 @@ func GetManager() (*Manager, error) {
 	defer managerMutex.Unlock()
 
 	if manager == nil {
-		cfg := config.GetConfig()
+		cfg := config.AppConfig // This line was changed from config.GetConfig()
 		pwManager, err := pipewire.NewManager(cfg.Pipewire.Socket)
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize Pipewire manager: %w", err)
@@ -77,25 +77,20 @@ func (m *Manager) StopStream(streamType string) error {
 func (m *Manager) StartRecording() (uint, error) {
 	// Logic to start a recording
 	log.Println("Starting recording...")
-	// Return a dummy ID for now
+
+	// Placeholder: Return a dummy recording ID and no error.
+	// In a real implementation, this would interact with the database.
 	return 1, nil
 }
 
-// StopRecording stops a recording.
+// StopRecording stops the current recording.
 func (m *Manager) StopRecording() error {
 	log.Println("Stopping recording...")
 	return nil
 }
 
-// DeleteRecording deletes a recording.
-func (m *Manager) DeleteRecording(id uint) error {
-	log.Printf("Deleting recording %d...", id)
-	return nil
-}
-
-// GetRecordings lists all recordings.
-func (m *Manager) GetRecordings() ([]string, error) {
-	log.Println("Getting recordings...")
-	// Return a dummy list for now
-	return []string{"rec1.wav", "rec2.wav"}, nil
+// GetAudioDevices lists available audio devices.
+func (m *Manager) GetAudioDevices() ([]string, error) {
+	// This would interact with the audio backend (PipeWire/GStreamer)
+	return []string{"Default", "Microphone 1", "Line In"}, nil
 }
