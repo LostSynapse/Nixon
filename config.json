@@ -1,24 +1,39 @@
 {
-    "srt_enabled": true,
+  "audio_settings": {
+    "device": "default",
+    "sample_rate": 48000,
+    "bit_depth": 24,
+    "master_channels": [
+      1,
+      2
+    ]
+  },
+  "auto_record": {
+    "enabled": false,
+    "directory": "./recordings",
+    "preroll_duration": 15,
+    "vad_threshold": 0.7,
+    "vad_db_threshold": -50.0,
+    "smart_split_enabled": false,
+    "smart_split_timeout": 10
+  },
+  "icecast_settings": {
     "icecast_enabled": true,
-    "audio_settings": {
-        "device": "hw:CARD=USB,DEV=0",
-        "bitrate": 48000,
-        "bit_depth": 24,
-        "channels": 2
-    },
-    "icecast_settings": {
-        "url": "192.168.98.99",
-        "port": "8000",
-        "mount": "stream",
-        "password": "hackme",
-        "stream_name": "Nixon Stream",
-        "stream_genre": "Various",
-        "stream_description": "Live from the studio",
-        "server_type": "icecast2"
-    },
-    "auto_record": {
-        "enabled": false,
-        "timeout_seconds": 300
-    }
+    "icecast_host": "127.0.0.1",
+    "icecast_port": 8000,
+    "icecast_mount": "stream",
+    "icecast_password": "hackme",
+    "icecast_bitrate": 192000
+  },
+  "srt_settings": {
+    "srt_enabled": true,
+    "srt_host": "127.0.0.1",
+    "srt_port": 9000,
+    "srt_bitrate": 128000
+  },
+  "network_settings": {
+    "signaling_url": "",
+    "stun_url": "stun:stun.l.google.com:19302"
+  }
 }
+

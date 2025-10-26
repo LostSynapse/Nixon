@@ -1,44 +1,89 @@
 package db
 
 import (
-	"database/sql"
-	_ "github.com/mattn/go-sqlite3"
+	"fmt" // ADDED: Required for error formatting
+	"time"
+
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+	"nixon/internal/common" // IMPORT: Use canonical structs
 )
 
-const dbFile = "./studio.db"
-var DB *sql.DB
+var dbConn *gorm.DB
 
-func Init() error {
+// Init initializes the database connection.
+func Init(dsn string) error {
 	var err error
-	DB, err = sql.Open("sqlite3", dbFile)
+	dbConn, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Info),
+	})
 	if err != nil {
 		return err
 	}
-	
-	statement, err := DB.Prepare(`CREATE TABLE IF NOT EXISTS recordings (id INTEGER PRIMARY KEY, filename TEXT NOT NULL UNIQUE, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, name TEXT, notes TEXT, genre TEXT, protected BOOLEAN DEFAULT FALSE);`)
-	if err != nil {
-		return err
-	}
-	_, err = statement.Exec()
-	return err
+
+	// Auto-migrate the database schema using the canonical struct
+	return dbConn.AutoMigrate(&common.Recording{})
 }
 
-func Close() {
-	if DB != nil {
-		DB.Close()
+// AddRecording creates a new recording entry in the database.
+// It now returns the common.Recording struct.
+func AddRecording(filename string, startTime time.Time) (*common.Recording, error) {
+	rec := &common.Recording{
+		Filename:  filename,
+		StartTime: startTime,
+		Notes:     "", // Default value
+		Genre:     "", // Default value
 	}
+	result := dbConn.Create(rec)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return rec, nil
 }
 
-func AddRecording(filename string) (int64, error) {
-	stmt, err := DB.Prepare("INSERT INTO recordings(filename, name) VALUES(?, ?)")
-	if err != nil {
-		return 0, err
+// UpdateRecording updates an existing recording in the database.
+func UpdateRecording(id uint, notes, genre string, endTime time.Time, duration time.Duration) error {
+	if dbConn == nil {
+		return fmt.Errorf("database not initialized")
 	}
-	defer stmt.Close()
-	res, err := stmt.Exec(filename, filename)
-	if err != nil {
-		return 0, err
+
+	// Find the recording first
+	var rec common.Recording
+	if err := dbConn.First(&rec, id).Error; err != nil {
+		return err // Handle not found error
 	}
-	return res.LastInsertId()
+
+	// Update fields
+	rec.Notes = notes
+	rec.Genre = genre
+	rec.EndTime = endTime
+	rec.Duration = duration
+
+	// Save the updated record
+	return dbConn.Save(&rec).Error
+}
+
+// DeleteRecording removes a recording from the database.
+func DeleteRecording(id uint) error {
+	result := dbConn.Delete(&common.Recording{}, id)
+	return result.Error
+}
+
+// GetAllRecordings retrieves all recording entries.
+func GetAllRecordings() ([]common.Recording, error) {
+	var recordings []common.Recording
+	result := dbConn.Find(&recordings)
+	return recordings, result.Error
+}
+
+// GetRecordingByID retrieves a single recording by its ID.
+func GetRecordingByID(id uint) (*common.Recording, error) {
+	var rec common.Recording
+	result := dbConn.First(&rec, id)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return &rec, nil
 }
 

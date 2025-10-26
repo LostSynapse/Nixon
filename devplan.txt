@@ -1,0 +1,119 @@
+Phase 1: Stability and Core Feature Completion
+
+Step 1 (Highest Priority): Implement Robust Audio Source Management
+
+Goal: Ensure application stability by defaulting to a safe audio source on first boot and in case of error. This step combines all pending audio-related configuration tasks into one unified refactor.
+
+Action: Modify internal/gstreamer/gstreamer.go so the audiotestsrc pipeline is the default source on first boot, or if the config.json device field is empty. The application should only attempt to switch to pipewiresrc after a device has been explicitly saved by the user.
+
+Action: If the user-selected pipewiresrc device fails to initialize, the pipeline must failover to the audiotestsrc to prevent a backend crash.
+
+Action: Add is_fallback_pipeline: true to the WebSocket status update.
+
+Action: Modify web/src/App.jsx to display a persistent error banner if is_fallback_pipeline is true.
+
+Action (Hardware Detection): Implement the backend API endpoint (/api/capabilities) that executes arecord --dump-hw-params and parses the output for supported sample rates and bit depths.
+
+Action (Hardware Detection): Update web/src/components/Modals.jsx to dynamically populate the "Sample Rate" and "Bit Depth" dropdowns from the audioCaps prop, greying out unsupported options.
+
+Action (Channel Mapping): Modify internal/gstreamer/gstreamer.go to implement the deinterleave/interleave logic to dynamically select the stereo pair specified by the master_channels array in the config.
+
+Step 2: Implement Disk Management (Auto-Purge)
+
+Goal: Add the automated disk cleanup feature.
+
+Action: Add auto_purge_enabled and auto_purge_threshold to config.json and the AutoRecordSettings struct in internal/config/config.go.
+
+Action: Create a new background task StartDiskPurgeMonitor in internal/api/tasks.go that periodically checks disk usage and deletes the oldest, unprotected recording if the threshold is exceeded.
+
+Action: Update cmd/nixon/main.go to launch this new goroutine.
+
+Action: Update web/src/components/Modals.jsx to add the "Enable Auto-Purge" and "Purge Threshold" controls to the "Auto-Record" tab.
+
+Phase 2: User Management (RBAC)
+
+Step 3: Implement Authentication
+
+Goal: Create the foundation for a multi-user system.
+
+Action: Add user tables to the GORM database schema in internal/db/db.go.
+
+Action: Implement secure password hashing (e.g., bcrypt).
+
+Action: Create API endpoints for user login, logout, and session management.
+
+Action: Implement a login page/modal in the frontend.
+
+Step 4: Implement Roles and Permissions
+
+Goal: Restrict access based on user roles.
+
+Action: Define "Admin" and "User" roles with distinct permissions.
+
+Action: Secure all API endpoints with middleware that checks user authentication and role.
+
+Action: Update the database schema to add a user_id to the recordings table to track ownership.
+
+Action: Modify API handlers (e.g., handleGetRecordings, handleDeleteRecording) to enforce ownership.
+
+Action: Update the frontend settings UI to include a "User Management" section, visible only to Admins.
+
+Phase 3: Networked Control & Routing
+
+Step 5: Implement AES70 (OCA) Control Framework
+
+Goal: Replace the simple REST API with a robust, industry-standard control protocol.
+
+Action: Integrate an AES70 library for Go.
+
+Action: Refactor the backend to expose all controllable parameters (e.g., stream status, config settings, routing) as AES70 objects.
+
+Action: Update the frontend (useNixonApi.js) to send AES70 commands.
+
+Step 6: Implement Audio & MIDI Routing Matrix (Talkback)
+
+Goal: Enable advanced audio and MIDI routing for talkback and monitoring.
+
+Action: Develop the companion mobile app for remote control and PTT talkback.
+
+Action: Add a "Routing" tab to the Nixon UI to visualize and control the PipeWire/JACK graph.
+
+Action: Use AES70 commands (which trigger pw-link on the backend) to create and sever connections between audio and MIDI nodes.
+
+Action: Add backend logic to detect and expose PipeWire MIDI ports (USB, rtpmidi, etc.).
+
+Action: Implement the "Dynamic Talkback Port" feature from Phase 3, linking authenticated users to specific audio nodes in the graph.
+
+Step 7: Implement Multi-Device and P2P Networking
+
+Goal: Allow Nixon appliances to collaborate over a network.
+
+Action: Implement mDNS for automatic discovery of other Nixon units.
+
+Action: Use AES70 for inter-device control.
+
+Action: Implement the hybrid audio transport system (AVB/AES67 preferred, SRT fallback).
+
+Action: Implement the WebRTC "Jamming" feature, including the signaling server logic.
+
+Phase 4: Professional Integrations and Final Polish
+
+Step 8: Implement Professional AoIP (AVB/AES67)
+
+Goal: Integrate with professional audio networks.
+
+Action: Leverage the i226-v hardware and PipeWire foundation to add native support for AVB and AES67 (avbsrc / avbsink).
+
+Action: Investigate Dante compatibility via AES67.
+
+Step 9: Implement Workflow and Usability Features
+
+Goal: Add remaining high-value features from the roadmap.
+
+Action: Implement web player enhancements (waveform, tagging).
+
+Action: Implement the system diagnostics dashboard.
+
+Action: Implement post-recording hooks for file management.
+
+Action: Develop the Elgato Stream Deck plugin.

@@ -2,35 +2,38 @@ package main
 
 import (
 	"log"
+	"net/http"
 	"nixon/internal/api"
 	"nixon/internal/config"
-	"nixon/internal/db"
-	"nixon/internal/gstreamer"
-	"os"
+	"nixon/internal/control"
+	"nixon/internal/websocket"
 )
 
 func main() {
-	log.Println("Starting Nixon backend...")
+	// Load configuration
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Error loading config: %v", err)
+	}
+	config.SetConfig(cfg) // Set the global config
 
-	if err := config.Load(); err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
+	// Initialize the Control Manager
+	ctrl, err := control.GetManager()
+	if err != nil {
+		log.Fatalf("Error initializing control manager: %v", err)
 	}
 
-	if err := db.Init(); err != nil {
-		log.Fatalf("Failed to initialize database: %v", err)
-	}
-	defer db.Close()
+	// Start background tasks
+	ctrl.StartBackgroundTasks()
 
-	if err := os.MkdirAll(config.RecordingsDir, 0755); err != nil {
-		log.Fatalf("Failed to create recordings directory: %v", err)
-	}
+	// Start the WebSocket message broadcaster
+	go websocket.HandleMessages()
 
-	go gstreamer.MonitorVAD()
+	// Setup router
+	router := api.NewRouter(ctrl)
 
-	router := api.SetupRouter()
-	log.Println("Backend started on :8080")
-	if err := router.Run(":8080"); err != nil {
-		log.Fatalf("Failed to start web server: %v", err)
+	log.Println("Server starting on :8080")
+	if err := http.ListenAndServe(":8080", router); err != nil {
+		log.Fatalf("Could not start server: %s\n", err)
 	}
 }
-

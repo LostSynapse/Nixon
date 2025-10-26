@@ -1,77 +1,73 @@
 # Nixon Development Roadmap
 
-This document outlines the development plan for the Nixon project, combining initial goals with features from various design notes.
+This document outlines the development plan for the Nixon project, reflecting the current 'Nixon-testing' codebase and incorporating future goals.
 
-## Phase 1: Core Functionality (Complete)
+## Phase 1: Core Architecture (Complete)
 
-This phase establishes the foundational features of the Nixon appliance.
+This phase establishes the foundational features of the Nixon appliance, based on the current refactored codebase.
 
-* \[x] **Streaming Engine:** Low-latency SRT and Icecast streaming.
-* \[x] **Recording Engine:** Manual start/stop/split recording.
-* \[x] **Backend:** Modular Go backend with a REST API, WebSocket for real-time updates, and SQLite for metadata.
-* \[x] **Frontend:** Component-based React single-page application with full recording management.
-* \[x] **Configuration:** External `config.json` with a settings UI.
+* \[x\] **Backend:** Modular Go backend using the standard `net/http` library.
+* \[x\] **Database:** Migrated to GORM for robust database interactions.
+* \[x\] **Audio Pipeline:** Unified, single-process audio pipeline built using native `go-gst` bindings (not command-line).
+* \[x\] **Audio Source:** Uses `pipewiresrc` as the master audio source, enabling native routing and eliminating hardware conflicts.
+* \[x\] **Audio Core:** A `tee` element splits the master signal into dynamic branches for VAD, pre-roll, recording, and streaming.
+* \[x\] **Frontend:** Component-based React single-page application using a custom `useNixonApi` hook for state management.
+* \[x\] **Configuration:** Centralized `config.json` driving all backend logic.
+* \[x\] **Real-time:** Event-driven WebSocket communication with the backend pushing state updates.
+* \[x\] **Logo:** Converted to a re-colorable React component with a separate hardcoded-black favicon.
 
-## Phase 2: Core Audio Engine Refactor & First-Boot Experience (In Progress)
+## Phase 2: Stability & Feature Completion (Current Priority)
 
-This is a major architectural push to create a stable, professional-grade audio foundation, resolve core bugs, and deliver a polished out-of-the-box user experience.
+This phase focuses on hardening the new architecture and completing the partially-implemented features from the refactor.
 
-* \[ ] **First-Boot Setup Wizard:**
-    * \[ ] Implement a `systeminitialize` state machine (`3`: OEM boot, `2`: Factory Reset, `1`: User Setup, `0`: Normal).
-    * \[ ] On state `3`, auto-generate a unique hostname (e.g., `nixon-a1b2c3d4`), store it in a persistent `nixonhost` config file, set the system hostname, set state to `2`, and reboot.
-    * \[ ] On state `2`, purge all recordings and databases, restore factory default `config.json`, set state to `1`, and restart the application service.
-    * \[ ] On state `1`, serve a setup wizard UI that guides the user through initial configuration.
-    * \[ ] The wizard will ask the user to select an expertise level (Standard, Power User, Professional) to set the UI mode.
-    * \[ ] The wizard will guide the user through setting the hostname, creating an optional admin account, and selecting the primary audio device.
-* \[ ] **JACK/PipeWire Integration:**
-    * \[ ] Integrate the JACK Audio Connection Kit as the core audio backend. PipeWire's compatibility layer (`pipewire-jack`) will be the recommended implementation.
-    * \[ ] The `systemd` service will be updated to depend on and start after the `pipewire.service`.
-* \[ ] **Unified GStreamer Pipeline (JACK-based):**
-    * \[ ] Rewrite the entire audio pathway to use a single, master GStreamer pipeline with `jackaudiosrc` as the input, resolving all hardware access conflicts and fixing the VAD crash bug.
-    * \[ ] Use a `tee` element to split the audio to branches for VAD, a pre-roll buffer, recording, and streaming.
-* \[ ] **Implement Advanced Audio & VAD Features:**
-    * \[ ] Implement automatic hardware capability detection (`arecord --dump-hw-params`) for sample rates and bit depths.
-    * \[ ] Implement a configurable pre-roll buffer.
-    * \[ ] Implement "Smart Split" with silence detection.
-    * \[ ] Implement the foundation for a channel routing matrix by using `deinterleave`/`interleave` on the multi-channel JACK source.
+* \[ \] **(Highest Priority) Dummy Audio Source:** Implement a fallback to `audiotestsrc` within the GStreamer pipeline. If the configured `pipewiresrc` device fails to initialize at startup, the pipeline must failover to this test source. This prevents a backend crash and allows the user to access the UI to correct the audio configuration. The dummy audio source should be configured as the system default audio source.
+* \[ \] **Hardware Capability Detection:** Implement the backend API endpoint (`/api/capabilities`) that executes `arecord --dump-hw-params` and parses the output for supported sample rates and bit depths. The frontend "Audio" tab must be connected to this endpoint to dynamically populate its dropdowns.
+* \[ \] **Channel Mapping:** Implement the GStreamer logic (`deinterleave`/`interleave`) to dynamically select the stereo pair specified by the `master_channels` array in the config.
+* \[ \] **Disk Management (Auto-purge):** Implement a background task to automatically delete the oldest *unprotected* recordings when disk usage exceeds a configurable threshold.
 
 ## Phase 3: User Management & Security (RBAC)
 
 This phase introduces a full Role-Based Access Control (RBAC) system.
 
-* \[ ] **Authentication:** Implement a user login system with secure password hashing and session management. A persistent warning will be displayed if no admin account is created.
-* \[ ] **Role Matrix:**
-    * \[ ] Create a "Users & Roles" section in the settings for administrators.
-    * \[ ] Implement a granular permission system and a UI matrix for creating and editing roles.
-    * \[ ] Ship with sensible default roles (e.g., Administrator, Producer, Operator).
-* \[ ] **Recording Ownership:** Update the database to associate recordings with a `user_id` and enforce ownership via the API.
-* \[ ] **Dynamic Talkback Ports:** Upon a successful login via the companion app, the backend will dynamically assign the user an available network port for their talkback audio stream.
+* \[ \] **Authentication:** Implement a user login system with secure password hashing and session management.
+* \[ \] **User Roles:**
+    * **Admin:** Full control over all system settings, user management, and can view/manage all recordings.
+    * **User:** Can start/stop streams and recordings, and can only view/manage their own recordings.
+* \[ \] **Recording Ownership:** Update the database schema to associate each recording with a `user_id`. The API and frontend will be modified to enforce this ownership.
+* \[ \] **Dynamic Talkback Ports:** Upon a successful login via the companion app, the backend will dynamically assign the user an available network port for their talkback audio stream (dependent on Phase 4).
 
-## Phase 4: Networked Audio & Collaboration
+## Phase 4: Networked Control & Routing
 
-This phase expands Nixon into a fully networked audio tool.
+This phase implements the "routing matrix" concept for both audio and MIDI, using open standards as the primary goal.
 
-* \[ ] **Companion "Talkback" Mobile App & Routing Matrix:**
-    * \[ ] Develop a simple mobile app for remote control (Start/Stop/Split) and a push-to-talk microphone.
-    * \[ ] Create a dedicated "Routing" tab on the main UI for the audio matrix.
-    * \[ ] Implement a UI for creating "Virtual Destinations" (headphone mixes) and routing any source (local input, talkback user, network stream) to any destination.
-* \[ ] **Multi-Device Management & Routing:**
-    * \[ ] Implement mDNS for discovery of all Nixon appliances.
-    * \[ ] Create a "Devices" UI for adopting/managing a fleet of Nixon units from a single controller, including promoting any member to controller.
-    * \[ ] Implement a "master redirect" for the web UI of managed devices.
-    * \[ ] Implement remote file management and aggregated disk usage monitoring.
-    * \[ ] Create an abstracted transport layer that intelligently chooses the best protocol (PipeWire native, NetJack2, or SRT fallback).
-* \[ ] **Low-Latency P2P Remote Collaboration ("Jamming"):**
-    * \[ ] Implement a new mode using **WebRTC** for direct, low-latency, bidirectional audio link with another Nixon appliance over the internet.
-    * \[ ] The backend will include a simple "Signaling Server" to broker connections.
-    * \[ ] The UI will include a "Network" tab for configuring Signaling, STUN, and optional TURN servers.
+* \[ \] **AES70 (OCA) Control Framework:**
+    * \[ \] Implement an AES70 device controller in Go. This will become the primary framework for all control and communication, replacing the simple REST API for pipeline and state control.
+    * \[ \] Expose all controllable parameters (routing, mixing, config) as AES70 objects using a temporary manufacturer ID.
+* \[ \] **Audio Routing Matrix (Talkback):**
+    * \[ \] Develop a "Talkback" mobile app (as a PWA or native app).
+    * \[ \] Create a "Routing" tab in the Nixon UI to visualize and control the PipeWire/JACK graph.
+    * \[ \] Use AES70 commands to create and sever connections (`pw-link`), allowing routing of any source (e.g., Talkback user) to any "Virtual Destination" (e.g., `pipewiresink` for headphones).
+* \[ \] **MIDI Routing Matrix:**
+    * \[ \] Add backend logic to detect and manage MIDI devices (USB, 5-pin DIN via GPIO, and `rtpmidi` network streams) through PipeWire.
+    * \[ \] Expand the "Routing" tab to show MIDI sources and destinations.
+    * \[ \] Use AES70 commands to manage the MIDI routing (e.g., `pw-link` for MIDI ports).
+* \[ \] **Multi-Device Routing (Nixon-to-Nixon):**
+    * \[ \] Implement mDNS for automatic discovery of other Nixon appliances.
+    * \[ \] Use AES70 for inter-device control.
+    * \[ \] Create a hybrid audio transport system that automatically uses **AVB/AES67** (see Phase 5) if a compatible network is detected, and falls back to dynamically created **SRT** streams on standard networks.
 
-## Phase 5: Professional Integrations & Usability (Future)
+## Phase 5: Professional Integrations & Usability
 
 This phase adds advanced features and integrations.
 
-* \[ ] **Web Player Enhancements:** Waveform display, time-stamped markers.
-* \[ ] **System Dashboard:** A status page showing CPU, memory, and pipeline diagnostics, including an indicator for whether an RT Kernel is detected.
-* \[ ] **Automatic File Management (Post-Recording Hooks).**
-* \[ ] **Elgato Stream Deck Integration.**
-* \[ ] **Professional AoIP Integration (Research):** Investigate and implement support for protocols like **AES67**, **Dante**, and **AVB**, leveraging the now-available I226-V NIC hardware and the JACK/PipeWire foundation.
+* \[ \] **Professional AoIP Integration (AVB/AES67):**
+    * \[ \] With the `i226-v` hardware solution identified and the `pipewiresrc` foundation in place, this is a high-priority integration.
+    * \[ \] Implement `avbsrc` / `avbsink` and AES67 support, allowing Nixon to act as a native, multi-channel node on a pro-audio network.
+* \[ \] **Low-Latency P2P Remote Collaboration ("Jamming"):**
+    * \[ \] Implement a **WebRTC** mode for direct internet-based collaboration, brokered by a signaling server (using `network_settings` from `config.json`).
+* \[ \] **Web Player Enhancements:**
+    * \[ \] **Waveform Display:** Integrate a library to render a visual waveform of recordings.
+    * \[ \] **Tagging/Marking:** Allow users to add time-stamped markers to recordings.
+* \[ \] **System Dashboard:** Add a status page showing CPU, memory, and PipeWire graph diagnostics.
+* \[ \] **Automatic File Management (Post-Recording Hooks):** Add a feature to execute a user-defined script after a recording is finished for automatic backup, transcoding, or notifications.
+* \[ \] **Elgato Stream Deck Integration:** Develop an official plugin for one-press hardware control.

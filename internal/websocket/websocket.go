@@ -3,90 +3,70 @@ package websocket
 import (
 	"log"
 	"net/http"
-	"nixon/internal/state"
 	"sync"
-	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
 
 var (
 	upgrader = websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool { return true },
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin:     func(r *http.Request) bool { return true }, // Allow all origins
 	}
 	clients   = make(map[*websocket.Conn]bool)
-	broadcast = make(chan interface{})
-	mutex     = &sync.Mutex{}
+	broadcast = make(chan []byte)
+	mutex     = &sync.RWMutex{}
 )
 
-func HandleWebSocket(c *gin.Context) {
-	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+// Handler upgrades HTTP to WebSocket and manages connection lifecycle.
+func Handler(w http.ResponseWriter, r *http.Request) {
+	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
+		log.Printf("WebSocket upgrade failed: %v", err)
 		return
 	}
 	defer ws.Close()
+
+	// Register client
 	mutex.Lock()
 	clients[ws] = true
 	mutex.Unlock()
+	log.Println("WebSocket client connected")
 
-	s := state.Get()
-	ws.WriteJSON(s)
-
+	// This loop is necessary to detect when a client disconnects.
 	for {
 		if _, _, err := ws.ReadMessage(); err != nil {
+			log.Printf("WebSocket client disconnected: %v", err)
+			mutex.Lock()
+			delete(clients, ws)
+			mutex.Unlock()
 			break
 		}
 	}
-
-	mutex.Lock()
-	delete(clients, ws)
-	mutex.Unlock()
 }
 
-func broadcastState(s interface{}) {
-	go func() {
-		broadcast <- s
-	}()
-}
-
-func HandleBroadcast() {
+// HandleMessages listens to the broadcast channel and forwards messages to clients.
+// This must be started as a goroutine.
+func HandleMessages() {
 	for {
 		msg := <-broadcast
-		mutex.Lock()
+		mutex.RLock()
+		// Send message to all clients
 		for client := range clients {
-			if err := client.WriteJSON(msg); err != nil {
+			err := client.WriteMessage(websocket.TextMessage, msg)
+			if err != nil {
 				log.Printf("WebSocket write error: %v", err)
 				client.Close()
-				delete(clients, client)
+				// Safely remove the client inside the read-lock is tricky.
+				// For simplicity, we let the read loop handle removal.
 			}
 		}
-		mutex.Unlock()
+		mutex.RUnlock()
 	}
 }
 
-func PollAndBroadcast() {
-	var lastState state.AppStateStruct
-	lastState = state.Get()
-
-	ticker := time.NewTicker(250 * time.Millisecond)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		currentState := state.Get()
-		
-		// Compare fields manually to avoid issues with comparing the mutex
-		if currentState.SRTStreamActive != lastState.SRTStreamActive ||
-			currentState.IcecastStreamActive != lastState.IcecastStreamActive ||
-			currentState.RecordingActive != lastState.RecordingActive ||
-			currentState.CurrentRecordingFile != lastState.CurrentRecordingFile ||
-			currentState.DiskUsagePercent != lastState.DiskUsagePercent ||
-			currentState.Listeners != lastState.Listeners ||
-			currentState.ListenerPeak != lastState.ListenerPeak {
-			
-			broadcastState(currentState)
-			lastState = currentState
-		}
-	}
+// Broadcast sends a message to all connected WebSocket clients.
+func Broadcast(message string) {
+	broadcast <- []byte(message)
 }
-

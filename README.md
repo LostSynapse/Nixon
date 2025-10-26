@@ -13,4 +13,4 @@ With this setup, it's set and forget.
 
 Take a look at manual_setup.md if you want to check it out.
 
-the automatic recording feature is currently broken but a fix/ overhaul to the backend is under way, and it will be the foundation for a completely redesigned scope.  aka managed feature bloat.
+system builds, but is otherwise not functional at this time, as UI elements are placeholders

@@ -1,49 +1,136 @@
 package api
 
 import (
-	"github.com/gin-gonic/gin"
-	"nixon/internal/config"
+	"encoding/json"
+	"log"
+	"net/http"
+	"nixon/internal/control"
 	"nixon/internal/websocket"
+	"os"
+	"path/filepath"
+	"strconv"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 )
 
-func SetupRouter() *gin.Engine {
-	router := gin.Default()
+// NewRouter creates a new router with all the application's routes.
+func NewRouter(ctrl *control.Manager) *chi.Mux {
+	r := chi.NewRouter()
 
-	router.Static("/assets", "./web/assets")
-	router.Static("/recordings", config.RecordingsDir)
-	router.StaticFile("/nixon_logo.svg", "./web/nixon_logo.svg")
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
 
-	api := router.Group("/api")
-	{
-		api.GET("/status", getStatus)
-		api.POST("/stream/srt/:action", handleSRTStream)
-		api.POST("/stream/icecast/:action", handleIcecastStream)
-		api.POST("/stream/all/:action", handleAllStreams)
-		api.POST("/recording/:action", handleRecording)
+	// WebSocket endpoint
+	r.Get("/ws", websocket.Handler)
 
-		api.GET("/recordings", handleGetRecordings)
-		api.PUT("/recordings/:id", handleUpdateRecording)
-		api.POST("/recordings/:id/protect", handleToggleProtect)
-		api.DELETE("/recordings/:id", handleDeleteRecording)
-
-		api.GET("/settings/all", getFullConfig)
-		api.POST("/settings/icecast", updateIcecastSettings)
-		api.POST("/settings/system", updateSystemSettings)
-		api.POST("/settings/audio", updateAudioSettings)
-
-		api.GET("/system/audiodevices", handleGetAudioDevices)
-	}
-
-	router.GET("/ws", websocket.HandleWebSocket)
-	router.NoRoute(func(c *gin.Context) {
-		c.File("./web/index.html")
+	// API routes
+	r.Route("/api", func(r chi.Router) {
+		r.Post("/stream/start", handleStreamStart(ctrl))
+		r.Post("/stream/stop", handleStreamStop(ctrl))
+		r.Post("/recording/start", handleRecordingStart(ctrl))
+		r.Post("/recording/stop", handleRecordingStop(ctrl))
+		r.Get("/recordings", handleGetRecordings(ctrl))
+		r.Delete("/recording/{id}", handleDeleteRecording(ctrl))
 	})
 
-	go monitorDiskUsage()
-	go monitorIcecastListeners()
-	go websocket.PollAndBroadcast()
-	go websocket.HandleBroadcast()
+	// Serve the SPA
+	workDir, _ := os.Getwd()
+	staticDir := http.Dir(filepath.Join(workDir, "web", "dist"))
+	fileServer := http.FileServer(staticDir)
 
-	return router
+	// Serve static assets
+	r.Handle("/assets/*", fileServer)
+	r.Handle("/nixon_logo.svg", fileServer)
+
+	// For all other requests, serve the SPA's entry point
+	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, filepath.Join(workDir, "web", "dist", "index.html"))
+	})
+
+	return r
 }
 
+func handleStreamStart(ctrl *control.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Type string `json:"type"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if err := ctrl.StartStream(body.Type); err != nil {
+			http.Error(w, "Failed to start stream", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func handleStreamStop(ctrl *control.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Type string `json:"type"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			return
+		}
+		if err := ctrl.StopStream(body.Type); err != nil {
+			http.Error(w, "Failed to stop stream", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func handleRecordingStart(ctrl *control.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, err := ctrl.StartRecording()
+		if err != nil {
+			http.Error(w, "Failed to start recording", http.StatusInternalServerError)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]uint{"id": id})
+	}
+}
+
+func handleRecordingStop(ctrl *control.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := ctrl.StopRecording(); err != nil {
+			http.Error(w, "Failed to stop recording", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func handleGetRecordings(ctrl *control.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		recordings, err := ctrl.GetRecordings()
+		if err != nil {
+			http.Error(w, "Failed to get recordings", http.StatusInternalServerError)
+			return
+		}
+		json.NewEncoder(w).Encode(recordings)
+	}
+}
+
+func handleDeleteRecording(ctrl *control.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		idStr := chi.URLParam(r, "id")
+		id, err := strconv.ParseUint(idStr, 10, 32)
+		if err != nil {
+			http.Error(w, "Invalid recording ID", http.StatusBadRequest)
+			return
+		}
+		if err := ctrl.DeleteRecording(uint(id)); err != nil {
+			log.Printf("Error deleting recording: %v", err)
+			http.Error(w, "Failed to delete recording", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}
+}

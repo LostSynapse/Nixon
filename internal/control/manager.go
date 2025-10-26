@@ -1,0 +1,101 @@
+package control
+
+import (
+	"fmt"
+	"log"
+	"nixon/internal/config"
+	"nixon/internal/pipewire"
+	"nixon/internal/websocket"
+	"sync"
+	"time"
+)
+
+var (
+	manager      *Manager
+	managerMutex = &sync.Mutex{}
+)
+
+// Manager orchestrates the streaming and recording processes.
+type Manager struct {
+	pwManager *pipewire.Manager
+	// More fields would be added here, e.g., for managing recordings, stream outputs, etc.
+}
+
+// GetManager initializes and returns the singleton Manager instance.
+func GetManager() (*Manager, error) {
+	managerMutex.Lock()
+	defer managerMutex.Unlock()
+
+	if manager == nil {
+		cfg := config.GetConfig()
+		pwManager, err := pipewire.NewManager(cfg.Pipewire.Socket)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize Pipewire manager: %w", err)
+		}
+
+		manager = &Manager{
+			pwManager: pwManager,
+		}
+	}
+
+	return manager, nil
+}
+
+// StartBackgroundTasks starts long-running processes for the application.
+func (m *Manager) StartBackgroundTasks() {
+	log.Println("Starting control manager background tasks...")
+	go m.monitorVAD()
+}
+
+// monitorVAD checks for voice activity and broadcasts updates.
+func (m *Manager) monitorVAD() {
+	log.Println("Starting VAD monitoring...")
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		// In a real implementation, we would check VAD status here.
+		// For now, we'll simulate broadcasting a status update.
+		websocket.Broadcast("{\"type\": \"vad_status\", \"active\": false}")
+	}
+}
+
+// StartStream starts a stream.
+func (m *Manager) StartStream(streamType string) error {
+	// Logic to start a stream, e.g., SRT or WebRTC
+	log.Printf("Starting %s stream...", streamType)
+	return nil
+}
+
+// StopStream stops a stream.
+func (m *Manager) StopStream(streamType string) error {
+	log.Printf("Stopping %s stream...", streamType)
+	return nil
+}
+
+// StartRecording starts a recording.
+func (m *Manager) StartRecording() (uint, error) {
+	// Logic to start a recording
+	log.Println("Starting recording...")
+	// Return a dummy ID for now
+	return 1, nil
+}
+
+// StopRecording stops a recording.
+func (m *Manager) StopRecording() error {
+	log.Println("Stopping recording...")
+	return nil
+}
+
+// DeleteRecording deletes a recording.
+func (m *Manager) DeleteRecording(id uint) error {
+	log.Printf("Deleting recording %d...", id)
+	return nil
+}
+
+// GetRecordings lists all recordings.
+func (m *Manager) GetRecordings() ([]string, error) {
+	log.Println("Getting recordings...")
+	// Return a dummy list for now
+	return []string{"rec1.wav", "rec2.wav"}, nil
+}

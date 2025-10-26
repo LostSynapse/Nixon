@@ -1,132 +1,32 @@
-import React, { useState, useEffect } from 'react';
+// web/src/components/Modals.jsx
+import React, { useState } from 'react';
 import { X } from 'lucide-react';
 
-export const Modal = ({ children, onClose, title }) => (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={onClose}>
-        <div className="bg-gray-800 rounded-lg shadow-2xl p-6 w-full max-w-lg m-4" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-bold">{title}</h3>
-                <button onClick={onClose} className="text-gray-500 hover:text-white"><X size={24} /></button>
-            </div>
-            {children}
-        </div>
-    </div>
-);
+export const Modal = ({ children, onClose, title, footerContent }) => (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}><div className="bg-gray-800 rounded-lg shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col border border-gray-700" onClick={e => e.stopPropagation()}><div className="flex justify-between items-center p-4 border-b border-gray-700 sticky top-0 bg-gray-800 z-10"><h3 className="text-xl font-bold text-gray-100">{title}</h3><button onClick={onClose} className="text-gray-500 hover:text-white" aria-label="Close modal"><X size={24} /></button></div><div className="p-6 overflow-y-auto space-y-6 flex-grow">{children}</div>{footerContent && (<div className="flex justify-end p-4 border-t border-gray-700 sticky bottom-0 bg-gray-800 z-10 space-x-3">{footerContent}</div>)}</div></div>);
 
-export const ConfirmationModal = ({ title, message, onConfirm, onCancel }) => (
-    <Modal onClose={onCancel} title={title}>
-        <p className="text-gray-300 mb-6">{message}</p>
-        <div className="flex justify-end space-x-3">
-            <button onClick={onCancel} className="px-4 py-2 rounded-lg bg-gray-600 hover:bg-gray-700 font-semibold">Cancel</button>
-            <button onClick={onConfirm} className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 font-semibold text-white">Confirm</button>
-        </div>
-    </Modal>
-);
+export const ConfirmationModal = ({ title, message, confirmText = "Confirm", cancelText = "Cancel", onConfirm, onCancel }) => (<Modal onClose={onCancel} title={title} footerContent={(<><button onClick={onCancel} className="px-4 py-2 rounded-lg bg-gray-600 hover:bg-gray-500 font-semibold text-white">{cancelText}</button><button onClick={onConfirm} className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 font-semibold text-white">{confirmText}</button></>)}><p className="text-gray-300">{message}</p></Modal>);
 
 export const EditModal = ({ recording, onSave, onCancel }) => {
-    const [name, setName] = useState(recording.name || '');
-    const [notes, setNotes] = useState(recording.notes || '');
-    const [genre, setGenre] = useState(recording.genre || '');
+    const [name, setName] = useState(recording?.Name || recording?.Filename || '');
+    const [notes, setNotes] = useState(recording?.Notes || '');
+    const [genre, setGenre] = useState(recording?.Genre || '');
+    const handleSave = () => { onSave({ ...recording, Name: name, Notes: notes, Genre: genre }); };
+    return (<Modal onClose={onCancel} title="Edit Recording" footerContent={(<><button onClick={onCancel} className="px-4 py-2 rounded-lg bg-gray-600 hover:bg-gray-500 font-semibold">Cancel</button><button onClick={handleSave} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 font-semibold text-white">Save Changes</button></>)}><div className="space-y-4"><div><label htmlFor="edit_rec_name" className="block text-sm font-medium text-gray-300 mb-1">Name</label><input id="edit_rec_name" type="text" value={name} onChange={e => setName(e.target.value)} className="form-input block w-full bg-gray-700 border-gray-600 rounded-lg shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm" /></div><div><label htmlFor="edit_rec_notes" className="block text-sm font-medium text-gray-300 mb-1">Notes</label><textarea id="edit_rec_notes" value={notes} onChange={e => setNotes(e.target.value)} rows="3" className="form-textarea block w-full bg-gray-700 border-gray-600 rounded-lg shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"></textarea></div><div><label htmlFor="edit_rec_genre" className="block text-sm font-medium text-gray-300 mb-1">Genre</label><input id="edit_rec_genre" type="text" value={genre} onChange={e => setGenre(e.target.value)} className="form-input block w-full bg-gray-700 border-gray-600 rounded-lg shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm" /></div></div></Modal>);};
 
-    const handleSave = () => {
-        onSave({ ...recording, name, notes, genre });
-    };
+export const SettingsModal = ({ fullConfig, audioCaps, onConfigChange, onSave, onCancel, onFetchCaps }) => {
+    const [activeTab, setActiveTab] = useState('audio');
+    if (!fullConfig) { return <Modal onClose={onCancel} title="Settings"><p className="text-gray-400">Loading settings...</p></Modal>; }
+    const TabButton = ({ tabName, label }) => (<button onClick={() => setActiveTab(tabName)} className={`px-3 py-2 text-sm font-medium transition-colors rounded-t-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 ${activeTab === tabName ? 'text-white bg-gray-700' : 'text-gray-400 hover:text-gray-200 hover:bg-gray-700/50'}`}>{label}</button>);
+    const masterChannelsString = Array.isArray(fullConfig.audio_settings?.master_channels) ? fullConfig.audio_settings.master_channels.join(',') : '';
+    const settingsFooter = (<><button onClick={onCancel} className="px-6 py-2 rounded-lg bg-gray-600 hover:bg-gray-500 font-semibold text-white">Cancel</button><button onClick={onSave} className="px-6 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 font-semibold text-white">Save Settings</button></>);
 
-    return (
-        <Modal onClose={onCancel} title="Edit Recording">
-            <div className="space-y-4">
-                <div><label className="block text-sm font-medium text-gray-400 mb-1">Name</label><input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" /></div>
-                <div><label className="block text-sm font-medium text-gray-400 mb-1">Notes</label><textarea value={notes} onChange={e => setNotes(e.target.value)} rows="3" className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea></div>
-                <div><label className="block text-sm font-medium text-gray-400 mb-1">Genre</label><input type="text" value={genre} onChange={e => setGenre(e.target.value)} className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" /></div>
-            </div>
-            <div className="flex justify-end space-x-3 mt-6"><button onClick={onCancel} className="px-4 py-2 rounded-lg bg-gray-600 hover:bg-gray-700 font-semibold">Cancel</button><button onClick={handleSave} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 font-semibold text-white">Save Changes</button></div>
-        </Modal>
-    );
-};
-
-export const SettingsModal = ({ onSave, onCancel }) => {
-    const [activeTab, setActiveTab] = useState('system');
-    const [fullConfig, setFullConfig] = useState({ icecast_settings: {}, audio_settings: {}, auto_record: {} });
-    const [audioDevices, setAudioDevices] = useState([]);
-
-    useEffect(() => {
-        const fetchAllSettings = async () => {
-            try {
-                const [configRes, devicesRes] = await Promise.all([ fetch('/api/settings/all'), fetch('/api/system/audiodevices') ]);
-                if (configRes.ok) setFullConfig(await configRes.json());
-                if (devicesRes.ok) setAudioDevices(await devicesRes.json());
-            } catch (e) { console.error("Could not fetch settings", e) }
-        };
-        fetchAllSettings();
-    }, []);
-
-    const handleConfigChange = (e) => {
-        const { name, value, type, checked } = e.target;
-        const keys = name.split('.');
-        setFullConfig(prev => {
-            let current = { ...prev };
-            let final = current;
-            for (let i = 0; i < keys.length - 1; i++) {
-                final = final[keys[i]];
-            }
-            final[keys[keys.length - 1]] = type === 'checkbox' ? checked : (e.target.tagName === 'SELECT' && !isNaN(parseInt(value))) ? parseInt(value) : value;
-            return current;
-        });
-    };
-
-    const TabButton = ({ tabName, label }) => (<button onClick={() => setActiveTab(tabName)} className={`px-4 py-2 font-semibold transition-colors ${activeTab === tabName ? 'text-white border-b-2 border-blue-500' : 'text-gray-400 hover:text-white'}`}>{label}</button>);
-
-    return (
-        <Modal onClose={onCancel} title="Settings">
-            <div className="border-b border-gray-700 mb-4"><TabButton tabName="system" label="System" /><TabButton tabName="audio" label="Audio" /><TabButton tabName="icecast" label="Icecast" /></div>
-            {activeTab === 'system' && (
-                 <div className="space-y-4">
-                     <h4 className="text-lg font-semibold text-gray-200">Stream Widgets</h4>
-                     <label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="srt_enabled" checked={fullConfig.srt_enabled} onChange={handleConfigChange} className="w-5 h-5 accent-blue-500" /><span className="text-gray-300">Enable SRT Stream Widget</span></label>
-                     <label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="icecast_enabled" checked={fullConfig.icecast_enabled} onChange={handleConfigChange} className="w-5 h-5 accent-blue-500" /><span className="text-gray-300">Enable Icecast Stream Widget</span></label>
-                     <hr className="border-gray-600"/>
-                     <h4 className="text-lg font-semibold text-gray-200">Auto Recording</h4>
-                     <label className="flex items-center space-x-3 cursor-pointer"><input type="checkbox" name="auto_record.enabled" checked={fullConfig.auto_record?.enabled} onChange={handleConfigChange} className="w-5 h-5 accent-blue-500" /><span className="text-gray-300">Enable Automatic Recording (VAD)</span></label>
-                     <div><label className="block text-sm font-medium text-gray-400 mb-1">Silence Timeout (seconds)</label><input type="number" name="auto_record.timeout_seconds" value={fullConfig.auto_record?.timeout_seconds} onChange={handleConfigChange} className="w-full bg-gray-700 rounded-lg px-3 py-2" /></div>
-                     <div className="flex justify-end pt-4"><button onClick={() => onSave.system({ srt_enabled: fullConfig.srt_enabled, icecast_enabled: fullConfig.icecast_enabled, auto_record: fullConfig.auto_record })} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 font-semibold text-white">Save System Settings</button></div>
-                 </div>
-            )}
-            {activeTab === 'audio' && (
-                <div className="space-y-4">
-                     <div><label className="block text-sm font-medium text-gray-400 mb-1">Audio Device</label><select name="audio_settings.device" value={fullConfig.audio_settings?.device} onChange={handleConfigChange} className="w-full bg-gray-700 rounded-lg px-3 py-2 appearance-none">{audioDevices.map(dev => <option key={dev.id} value={dev.id}>{dev.name} ({dev.id})</option>)}</select></div>
-                     <hr className="border-gray-600"/>
-                      <div><label className="block text-sm font-medium text-gray-400 mb-1">Bit Rate (Opus/Vorbis)</label>
-                        <select name="audio_settings.bitrate" value={fullConfig.audio_settings?.bitrate} onChange={handleConfigChange} className="w-full bg-gray-700 rounded-lg px-3 py-2 appearance-none">
-                            <option value="48000">48 kbps</option>
-                            <option value="64000">64 kbps</option>
-                            <option value="96000">96 kbps</option>
-                            <option value="128000">128 kbps</option>
-                            <option value="192000">192 kbps</option>
-                            <option value="256000">256 kbps</option>
-                        </select>
-                         <p className="text-xs text-gray-500 mt-1">Note: Not all bitrates may be supported by your hardware. If a stream fails to start, try a different bitrate.</p>
-                      </div>
-                     <div><label className="block text-sm font-medium text-gray-400 mb-1">Bit Depth (Future)</label><input type="number" name="audio_settings.bit_depth" value={fullConfig.audio_settings?.bit_depth} onChange={handleConfigChange} disabled className="w-full bg-gray-900 rounded-lg px-3 py-2 cursor-not-allowed" /></div>
-                      <div><label className="block text-sm font-medium text-gray-400 mb-1">Channels (Future)</label><input type="number" name="audio_settings.channels" value={fullConfig.audio_settings?.channels} onChange={handleConfigChange} disabled className="w-full bg-gray-900 rounded-lg px-3 py-2 cursor-not-allowed" /></div>
-                     <div className="flex justify-end pt-4"><button onClick={() => onSave.audio(fullConfig.audio_settings)} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 font-semibold text-white">Save Audio Settings</button></div>
-                </div>
-            )}
-            {activeTab === 'icecast' && (
-                <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
-                    <div><label className="block text-sm font-medium text-gray-400 mb-1">Server Type</label><select name="icecast_settings.server_type" value={fullConfig.icecast_settings?.server_type} onChange={handleConfigChange} className="w-full bg-gray-700 rounded-lg px-3 py-2 appearance-none"><option value="icecast2">Icecast 2</option><option value="icecast-kh">Icecast-KH</option></select></div>
-                    <hr className="border-gray-600"/>
-                    <div><label className="block text-sm font-medium text-gray-400 mb-1">Server URL</label><input type="text" name="icecast_settings.url" value={fullConfig.icecast_settings?.url} onChange={handleConfigChange} className="w-full bg-gray-700 rounded-lg px-3 py-2" /></div>
-                    <div><label className="block text-sm font-medium text-gray-400 mb-1">Port</label><input type="text" name="icecast_settings.port" value={fullConfig.icecast_settings?.port} onChange={handleConfigChange} className="w-full bg-gray-700 rounded-lg px-3 py-2" /></div>
-                    <div><label className="block text-sm font-medium text-gray-400 mb-1">Mount Point</label><input type="text" name="icecast_settings.mount" value={fullConfig.icecast_settings?.mount} onChange={handleConfigChange} className="w-full bg-gray-700 rounded-lg px-3 py-2" /></div>
-                    <div><label className="block text-sm font-medium text-gray-400 mb-1">Password</label><input type="password" name="icecast_settings.password" value={fullConfig.icecast_settings?.password} onChange={handleConfigChange} className="w-full bg-gray-700 rounded-lg px-3 py-2" /></div>
-                    <hr className="border-gray-600"/>
-                    <div><label className="block text-sm font-medium text-gray-400 mb-1">Stream Name</label><input type="text" name="icecast_settings.stream_name" value={fullConfig.icecast_settings?.stream_name} onChange={handleConfigChange} className="w-full bg-gray-700 rounded-lg px-3 py-2" /></div>
-                    <div><label className="block text-sm font-medium text-gray-400 mb-1">Genre</label><input type="text" name="icecast_settings.stream_genre" value={fullConfig.icecast_settings?.stream_genre} onChange={handleConfigChange} className="w-full bg-gray-700 rounded-lg px-3 py-2" /></div>
-                    <div><label className="block text-sm font-medium text-gray-400 mb-1">Description</label><input type="text" name="icecast_settings.stream_description" value={fullConfig.icecast_settings?.stream_description} onChange={handleConfigChange} className="w-full bg-gray-700 rounded-lg px-3 py-2" /></div>
-                    <div className="flex justify-end pt-4"><button onClick={() => onSave.icecast(fullConfig.icecast_settings)} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 font-semibold text-white">Save Icecast Settings</button></div>
-                </div>
-            )}
-        </Modal>
-    );
+    return (<Modal onClose={onCancel} title="Settings" footerContent={settingsFooter}><div className="border-b border-gray-700 mb-6 flex space-x-1 sticky top-0 bg-gray-800 pt-1 -mt-1 z-10"><TabButton tabName="audio" label="Audio" /><TabButton tabName="auto_record" label="Auto-Record" /><TabButton tabName="srt" label="SRT" /><TabButton tabName="icecast" label="Icecast" /><TabButton tabName="network" label="Network" /></div>
+      {activeTab === 'audio' && (<div className="space-y-5"><div><label htmlFor="audio_device" className="block text-sm font-medium text-gray-300 mb-1">Audio Device</label><div className="flex space-x-2 items-center"><select id="audio_device" name="audio_settings.device" value={fullConfig.audio_settings?.device || ''} onChange={onConfigChange} className="form-select block w-full bg-gray-700 border-gray-600 rounded-lg shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 sm:text-sm"><option value="">Select...</option><option value="default">Default</option></select><button type="button" onClick={() => onFetchCaps(fullConfig.audio_settings?.device)} disabled={!fullConfig.audio_settings?.device || fullConfig.audio_settings?.device === "default"} className="px-3 py-2 bg-gray-600 hover:bg-gray-500 rounded-lg text-sm font-medium text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed" title="Scan device capabilities">Scan</button></div><p className="mt-1 text-xs text-gray-500">Use <code className="bg-gray-900 px-1 rounded text-gray-400">pw-dump Node</code> to find device paths/names.</p></div><div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label htmlFor="sample_rate" className="block text-sm font-medium text-gray-300 mb-1">Sample Rate</label><select id="sample_rate" name="audio_settings.sample_rate" data-type="int" value={fullConfig.audio_settings?.sample_rate ?? 48000} onChange={onConfigChange} className="form-select block w-full bg-gray-700 border-gray-600 rounded-lg shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 sm:text-sm"><option value="44100">44100 Hz</option><option value="48000">48000 Hz</option><option value="96000">96000 Hz</option>{[...new Set(audioCaps?.rates?.map(r=>parseInt(r,10)).filter(r=>!isNaN(r)))].sort((a,b)=>a-b).map(r=>(![44100,48000,96000].includes(r)&&<option key={r} value={r}>{r} Hz (Scanned)</option>))}</select></div><div><label htmlFor="bit_depth" className="block text-sm font-medium text-gray-300 mb-1">Bit Depth</label><select id="bit_depth" name="audio_settings.bit_depth" data-type="int" value={fullConfig.audio_settings?.bit_depth ?? 24} onChange={onConfigChange} className="form-select block w-full bg-gray-700 border-gray-600 rounded-lg shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 sm:text-sm"><option value="16">16-bit</option><option value="24">24-bit</option><option value="32">32-bit</option>{[...new Set(audioCaps?.depths?.map(d=>parseInt(d,10)).filter(d=>!isNaN(d)))].sort((a,b)=>a-b).map(d=>(![16,24,32].includes(d)&&<option key={d} value={d}>{d}-bit (Scanned)</option>))}</select></div></div><div><label htmlFor="master_channels" className="block text-sm font-medium text-gray-300 mb-1">Master Channels (Comma-separated)</label><input id="master_channels" type="text" name="audio_settings.master_channels" data-type="int_array" value={masterChannelsString} onChange={onConfigChange} className="form-input block w-full bg-gray-700 border-gray-600 rounded-lg shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 sm:text-sm" placeholder="e.g., 1,2"/><p className="mt-1 text-xs text-gray-500">Input channels (1-based). '1,2' = stereo pair.</p></div></div>)}
+      {activeTab === 'auto_record' && (<div className="space-y-5"><label className="flex items-center space-x-3 cursor-pointer p-2 rounded-md hover:bg-gray-700/50"><input type="checkbox" name="auto_record.enabled" checked={!!fullConfig.auto_record?.enabled} onChange={onConfigChange} className="form-checkbox h-5 w-5 rounded text-blue-500 bg-gray-700 border-gray-600 focus:ring-blue-500 focus:ring-offset-gray-800"/><span className="text-gray-200 font-medium">Enable Auto-Record (VAD)</span></label><hr className="border-gray-600"/><div><label htmlFor="vad_db_threshold" className="block text-sm font-medium text-gray-300 mb-1">VAD Trigger Level (dB)</label><input id="vad_db_threshold" type="number" name="auto_record.vad_db_threshold" data-type="float" value={fullConfig.auto_record?.vad_db_threshold ?? -50.0} onChange={onConfigChange} className="form-input block w-full bg-gray-700 border-gray-600 rounded-lg shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 sm:text-sm" step="0.1"/><p className="mt-1 text-xs text-gray-500">Audio <span className="font-semibold">above</span> this level is voice.</p></div><div><label htmlFor="rec_dir" className="block text-sm font-medium text-gray-300 mb-1">Recording Directory</label><input id="rec_dir" type="text" name="auto_record.directory" value={fullConfig.auto_record?.directory || './recordings'} onChange={onConfigChange} className="form-input block w-full bg-gray-700 border-gray-600 rounded-lg shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 sm:text-sm" placeholder="./recordings"/><p className="mt-1 text-xs text-gray-500">Relative to server executable.</p></div><div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label htmlFor="preroll" className="block text-sm font-medium text-gray-300 mb-1">Pre-roll (sec)</label><input id="preroll" type="number" name="auto_record.preroll_duration" data-type="int" value={fullConfig.auto_record?.preroll_duration ?? 15} onChange={onConfigChange} className="form-input block w-full bg-gray-700 border-gray-600 rounded-lg shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 sm:text-sm" min="0"/><p className="mt-1 text-xs text-gray-500">Buffer before VAD trigger.</p></div><div><label htmlFor="silence_timeout" className="block text-sm font-medium text-gray-300 mb-1">Silence Timeout (sec)</label><input id="silence_timeout" type="number" name="auto_record.smart_split_timeout" data-type="int" value={fullConfig.auto_record?.smart_split_timeout ?? 10} onChange={onConfigChange} className="form-input block w-full bg-gray-700 border-gray-600 rounded-lg shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 sm:text-sm" min="1"/><p className="mt-1 text-xs text-gray-500">Duration before action.</p></div></div><label className="flex items-center space-x-3 cursor-pointer p-2 rounded-md hover:bg-gray-700/50"><input type="checkbox" name="auto_record.smart_split_enabled" checked={!!fullConfig.auto_record?.smart_split_enabled} onChange={onConfigChange} className="form-checkbox h-5 w-5 rounded text-blue-500 bg-gray-700 border-gray-600 focus:ring-blue-500 focus:ring-offset-gray-800"/><span className="text-gray-200 font-medium">Enable Smart-Split</span></label><p className="text-xs text-gray-500 -mt-2 ml-10">If enabled, starts new file after silence. If disabled, stops recording.</p></div>)}
+      {activeTab === 'srt' && (<div className="space-y-5"><label className="flex items-center space-x-3 cursor-pointer p-2 rounded-md hover:bg-gray-700/50"><input type="checkbox" name="srt_settings.srt_enabled" checked={!!fullConfig.srt_settings?.srt_enabled} onChange={onConfigChange} className="form-checkbox h-5 w-5 rounded text-blue-500 bg-gray-700 border-gray-600 focus:ring-blue-500 focus:ring-offset-gray-800"/><span className="text-gray-200 font-medium">Enable SRT Stream</span></label><hr className="border-gray-600"/><div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label htmlFor="srt_host" className="block text-sm font-medium text-gray-300 mb-1">SRT Host/IP</label><input id="srt_host" type="text" name="srt_settings.srt_host" value={fullConfig.srt_settings?.srt_host || '127.0.0.1'} onChange={onConfigChange} className="form-input block w-full bg-gray-700 border-gray-600 rounded-lg shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 sm:text-sm"/><p className="mt-1 text-xs text-gray-500">Destination address.</p></div><div><label htmlFor="srt_port" className="block text-sm font-medium text-gray-300 mb-1">SRT Port</label><input id="srt_port" type="number" name="srt_settings.srt_port" data-type="int" value={fullConfig.srt_settings?.srt_port ?? 9000} onChange={onConfigChange} className="form-input block w-full bg-gray-700 border-gray-600 rounded-lg shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 sm:text-sm" min="1" max="65535"/><p className="mt-1 text-xs text-gray-500">Destination port.</p></div></div><div><label htmlFor="srt_bitrate" className="block text-sm font-medium text-gray-300 mb-1">Bitrate (Opus)</label><select id="srt_bitrate" name="srt_settings.srt_bitrate" data-type="int" value={fullConfig.srt_settings?.srt_bitrate || 128000} onChange={onConfigChange} className="form-select block w-full bg-gray-700 border-gray-600 rounded-lg shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 sm:text-sm"><option value="64000">64 kbps</option><option value="96000">96 kbps</option><option value="128000">128 kbps</option><option value="192000">192 kbps</option><option value="256000">256 kbps</option></select></div><p className="text-xs text-gray-500">Ensure SRT listener is running.</p></div>)}
+      {activeTab === 'icecast' && (<div className="space-y-5"><label className="flex items-center space-x-3 cursor-pointer p-2 rounded-md hover:bg-gray-700/50"><input type="checkbox" name="icecast_settings.icecast_enabled" checked={!!fullConfig.icecast_settings?.icecast_enabled} onChange={onConfigChange} className="form-checkbox h-5 w-5 rounded text-blue-500 bg-gray-700 border-gray-600 focus:ring-blue-500 focus:ring-offset-gray-800"/><span className="text-gray-200 font-medium">Enable Icecast Stream</span></label><hr className="border-gray-600"/><div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label htmlFor="ice_host" className="block text-sm font-medium text-gray-300 mb-1">Icecast Host/IP</label><input id="ice_host" type="text" name="icecast_settings.icecast_host" value={fullConfig.icecast_settings?.icecast_host || '127.0.0.1'} onChange={onConfigChange} className="form-input block w-full bg-gray-700 border-gray-600 rounded-lg shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 sm:text-sm"/></div><div><label htmlFor="ice_port" className="block text-sm font-medium text-gray-300 mb-1">Icecast Port</label><input id="ice_port" type="number" name="icecast_settings.icecast_port" data-type="int" value={fullConfig.icecast_settings?.icecast_port ?? 8000} onChange={onConfigChange} className="form-input block w-full bg-gray-700 border-gray-600 rounded-lg shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 sm:text-sm" min="1" max="65535"/></div></div><div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label htmlFor="ice_mount" className="block text-sm font-medium text-gray-300 mb-1">Mount Point</label><input id="ice_mount" type="text" name="icecast_settings.icecast_mount" value={fullConfig.icecast_settings?.icecast_mount || '/stream'} onChange={onConfigChange} className="form-input block w-full bg-gray-700 border-gray-600 rounded-lg shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 sm:text-sm"/><p className="mt-1 text-xs text-gray-500">e.g., /live</p></div><div><label htmlFor="ice_pass" className="block text-sm font-medium text-gray-300 mb-1">Source Password</label><input id="ice_pass" type="password" name="icecast_settings.icecast_password" value={fullConfig.icecast_settings?.icecast_password || 'hackme'} onChange={onConfigChange} className="form-input block w-full bg-gray-700 border-gray-600 rounded-lg shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 sm:text-sm"/></div></div><div><label htmlFor="ice_bitrate" className="block text-sm font-medium text-gray-300 mb-1">Bitrate (MP3)</label><select id="ice_bitrate" name="icecast_settings.icecast_bitrate" data-type="int" value={fullConfig.icecast_settings?.icecast_bitrate || 192000} onChange={onConfigChange} className="form-select block w-full bg-gray-700 border-gray-600 rounded-lg shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 sm:text-sm"><option value="128000">128 kbps</option><option value="192000">192 kbps</option><option value="256000">256 kbps</option><option value="320000">320 kbps</option></select></div></div>)}
+      {activeTab === 'network' && (<div className="space-y-5"><h4 className="text-lg font-semibold text-gray-200 border-b border-gray-600 pb-2">WebRTC (Future)</h4><div><label htmlFor="signal_url" className="block text-sm font-medium text-gray-300 mb-1">Signaling Server URL</label><input id="signal_url" type="url" name="network_settings.signaling_url" value={fullConfig.network_settings?.signaling_url || ''} onChange={onConfigChange} className="form-input block w-full bg-gray-700 border-gray-600 rounded-lg shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 sm:text-sm" placeholder="wss://..."/><p className="mt-1 text-xs text-gray-500">For P2P setup.</p></div><div><label htmlFor="stun_url" className="block text-sm font-medium text-gray-300 mb-1">STUN Server URL</label><input id="stun_url" type="text" name="network_settings.stun_url" value={fullConfig.network_settings?.stun_url || 'stun:stun.l.google.com:19302'} onChange={onConfigChange} className="form-input block w-full bg-gray-700 border-gray-600 rounded-lg shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 sm:text-sm" placeholder="stun:..."/><p className="mt-1 text-xs text-gray-500">Helps with NAT traversal.</p></div></div>)}
+    </Modal>);
 };
 

@@ -1,138 +1,106 @@
 package config
 
 import (
-	"encoding/json"
-	"fmt"
 	"log"
-	"os"
 	"sync"
+
+	"github.com/spf13/viper"
 )
 
-const (
-	configFile    = "./config.json"
-	RecordingsDir = "./recordings"
-)
-
-type IcecastSettings struct {
-	URL               string `json:"url"`
-	Port              string `json:"port"`
-	Mount             string `json:"mount"`
-	Password          string `json:"password"`
-	StreamName        string `json:"stream_name"`
-	StreamGenre       string `json:"stream_genre"`
-	StreamDescription string `json:"stream_description"`
-	ServerType        string `json:"server_type"`
-}
-
-type AudioSettings struct {
-	Device   string `json:"device"`
-	Bitrate  int    `json:"bitrate"`
-	BitDepth int    `json:"bit_depth"`
-	Channels int    `json:"channels"`
-}
-
-type AutoRecordSettings struct {
-	Enabled        bool `json:"enabled"`
-	TimeoutSeconds int  `json:"timeout_seconds"`
-}
-
+// Config holds the application's configuration.
 type Config struct {
-	sync.RWMutex
-	SRTEnabled     bool             `json:"srt_enabled"`
-	IcecastEnabled bool             `json:"icecast_enabled"`
-	Audio          AudioSettings    `json:"audio_settings"`
-	Icecast        IcecastSettings  `json:"icecast_settings"`
-	AutoRecord     AutoRecordSettings `json:"auto_record"`
+	Pipewire        PipewireSettings  `json:"pipewire"`
+	Recording       RecordingSettings `json:"recording"`
+	NetworkSettings NetworkSettings   `json:"networkSettings"`
+	SrtSettings     SrtSettings       `json:"srtSettings"`
+	IcecastSettings IcecastSettings   `json:"icecastSettings"`
 }
 
-var globalConfig Config
+// PipewireSettings holds PipeWire-related config.
+type PipewireSettings struct {
+	Socket string `json:"socket"`
+}
 
-func Load() error {
-	file, err := os.Open(configFile)
-	if err != nil {
-		if os.IsNotExist(err) {
-			log.Println("config.json not found, creating a default one.")
-			defaultConfig := Config{
-				SRTEnabled:     true,
-				IcecastEnabled: true,
-				Audio: AudioSettings{
-					Device:   "hw:5,0",
-					Bitrate:  48000,
-					BitDepth: 24,
-					Channels: 2,
-				},
-				Icecast: IcecastSettings{
-					URL:               "localhost",
-					Port:              "8000",
-					Mount:             "stream",
-					Password:          "hackme",
-					StreamName:        "Nixon Stream",
-					StreamGenre:       "Various",
-					StreamDescription: "Live from the studio",
-					ServerType:        "icecast2",
-				},
-				AutoRecord: AutoRecordSettings{
-					Enabled:        false,
-					TimeoutSeconds: 300,
-				},
-			}
-			if err := saveConfig(&defaultConfig); err != nil {
-				return err
-			}
-			globalConfig = defaultConfig
-			return nil
+// RecordingSettings holds recording configuration.
+type RecordingSettings struct {
+	Enabled     bool   `json:"enabled"`
+	Directory   string `json:"directory"`
+	FilePattern string `json:"filePattern"`
+	FileFormat  string `json:"fileFormat"`
+}
+
+// NetworkSettings holds WebRTC and signaling server config.
+type NetworkSettings struct {
+	SignalingURL string `json:"signalingUrl"`
+	StunURL      string `json:"stunUrl"`
+}
+
+// SrtSettings holds SRT streaming config.
+type SrtSettings struct {
+	SrtEnabled bool   `json:"srtEnabled"`
+	SrtHost    string `json:"srtHost"`
+	SrtPort    int    `json:"srtPort"`
+	SrtStream  string `json:"srtStream"`
+	SrtLatency int    `json:"srtLatency"`
+}
+
+// IcecastSettings holds Icecast streaming config.
+type IcecastSettings struct {
+	IcecastEnabled   bool   `json:"icecastEnabled"`
+	IcecastHost      string `json:"icecastHost"`
+	IcecastPort      int    `json:"icecastPort"`
+	IcecastUser      string `json:"icecastUser"`
+	IcecastPassword  string `json:"icecastPassword"`
+	IcecastMount     string `json:"icecastMount"`
+	IcecastBitrate   int    `json:"icecastBitrate"`
+	IcecastGenre     string `json:"icecastGenre"`
+	IcecastName      string `json:"icecastName"`
+	IcecastPublic    bool   `json:"icecastPublic"`
+	IcecastDescription string `json:"icecastDescription"`
+}
+
+var (
+	conf Config
+	once sync.Once
+	v    *viper.Viper
+)
+
+// Load initializes the configuration from file.
+// It returns the loaded config and an error if one occurred.
+func Load() (Config, error) {
+	var err error
+	once.Do(func() {
+		v = viper.New()
+		v.SetConfigName("config")
+		v.SetConfigType("json")
+		v.AddConfigPath(".")
+		v.AddConfigPath("/etc/nixon/")
+		v.AddConfigPath("$HOME/.nixon/")
+
+		// Set default values
+		v.SetDefault("pipewire.socket", "pipewire-0")
+		v.SetDefault("recording.enabled", true)
+		v.SetDefault("recording.directory", "./recordings")
+		v.SetDefault("recording.filePattern", "rec_{YYYY}-{MM}-{DD}_{hh-mm-ss}")
+		v.SetDefault("recording.fileFormat", "flac")
+
+		if err = v.ReadInConfig(); err != nil {
+			log.Printf("Warning: Could not read config file: %v. Using defaults.", err)
 		}
-		return fmt.Errorf("failed to open config file: %w", err)
-	}
-	defer file.Close()
 
-	globalConfig.Lock()
-	defer globalConfig.Unlock()
-	decoder := json.NewDecoder(file)
-	if err := decoder.Decode(&globalConfig); err != nil {
-		return fmt.Errorf("failed to decode config file: %w", err)
-	}
-
-	log.Printf("Configuration loaded successfully.")
-	return nil
+		if err = v.Unmarshal(&conf); err != nil {
+			log.Fatalf("Fatal error: could not unmarshal config: %v", err)
+		}
+	})
+	return conf, err
 }
 
-func saveConfig(cfg *Config) error {
-	cfg.Lock()
-	defer cfg.Unlock()
-	data, err := json.MarshalIndent(cfg, "", "    ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
-	}
-	return os.WriteFile(configFile, data, 0644)
+// GetConfig returns the singleton config instance.
+func GetConfig() Config {
+	return conf
 }
 
-func Get() Config {
-	globalConfig.RLock()
-	defer globalConfig.RUnlock()
-	return globalConfig
+// SetConfig sets the global config instance (useful for testing).
+func SetConfig(c Config) {
+	conf = c
 }
-
-func UpdateIcecast(settings IcecastSettings) error {
-	globalConfig.Lock()
-	globalConfig.Icecast = settings
-	globalConfig.Unlock()
-	return saveConfig(&globalConfig)
-}
-
-func UpdateSystem(srt, icecast bool, autoRecord AutoRecordSettings) error {
-	globalConfig.Lock()
-	globalConfig.SRTEnabled = srt
-	globalConfig.IcecastEnabled = icecast
-	globalConfig.AutoRecord = autoRecord
-	globalConfig.Unlock()
-	return saveConfig(&globalConfig)
-}
-
-func UpdateAudio(settings AudioSettings) error {
-	globalConfig.Lock()
-	globalConfig.Audio = settings
-	globalConfig.Unlock()
-	return saveConfig(&globalConfig)
-}
-

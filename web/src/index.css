@@ -1,4 +1,11 @@
+/* web/src/index.css */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* Add any custom base styles here if needed */
+body {
+  /* Example: ensure text is anti-aliased */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
