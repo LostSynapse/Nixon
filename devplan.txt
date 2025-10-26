@@ -1,119 +1,153 @@
-Phase 1: Stability and Core Feature Completion
+# Nixon Development Plan
 
-Step 1 (Highest Priority): Implement Robust Audio Source Management
+## Priority 1: Code Hygiene, Security, and Consistency
 
-Goal: Ensure application stability by defaulting to a safe audio source on first boot and in case of error. This step combines all pending audio-related configuration tasks into one unified refactor.
+### Task 1.1: Dependency Management
+- Run `go mod tidy` to clean up the Go workspace.
+- Run `go get -u ./...` to update all Go dependencies to their latest minor/patch versions.
+- Run `npm update` in the `web/` directory to update all frontend dependencies.
+- Run `go mod vendor` and `npm audit fix` to resolve any outstanding vulnerabilities.
 
-Action: Modify internal/gstreamer/gstreamer.go so the audiotestsrc pipeline is the default source on first boot, or if the config.json device field is empty. The application should only attempt to switch to pipewiresrc after a device has been explicitly saved by the user.
+### Task 1.2: Configuration Centralization using Viper Defaults
+- Identify any configuration values hardcoded in the application source.
+- Add corresponding fields to the `Config` structs in `internal/config/config.go`.
+- In the `config.Load()` function, implement a `viper.SetDefault("struct.field", "defaultValue")` call for each configuration parameter. This ensures the application can generate a default configuration if `config.json` is not present.
+- Replace all identified hardcoded values in the Go source with references to the loaded configuration (e.g., `cfg.Server.ListenAddress`).
 
-Action: If the user-selected pipewiresrc device fails to initialize, the pipeline must failover to the audiotestsrc to prevent a backend crash.
+### Task 1.3: Implement Structured Logging
+- Initialize a global `slog.Logger` with a JSON handler in `cmd/nixon/main.go`.
+- Pass the logger instance as a dependency to all top-level application components (e.g., API router, control manager).
+- Go through each file in the `internal/` directory and replace all `log.*` calls with corresponding `logger.Info`, `logger.Warn`, `logger.Error`, or `logger.Debug` calls, adding structured key-value pairs where appropriate.
 
-Action: Add is_fallback_pipeline: true to the WebSocket status update.
+### Task 1.4: Standardize Error Handling
+- Review the entire Go codebase and remove all uses of `log.Fatal` and `panic` for recoverable errors.
+- Refactor functions to return errors instead of calling fatal logging functions.
+- Establish a consistent pattern of bubbling errors up to the API handlers.
+- Ensure API handlers return appropriate HTTP status codes and error messages based on the errors received from underlying components.
 
-Action: Modify web/src/App.jsx to display a persistent error banner if is_fallback_pipeline is true.
+### Task 1.5: Secure the WebSocket API
+- Add a new HTTP endpoint (e.g., `/login`) for a simple, token-based authentication mechanism.
+- Modify the WebSocket upgrade handler in `internal/websocket/websocket.go` to require a valid authentication token passed as a query parameter.
+- Update the frontend API hook (`web/src/hooks/useNixonApi.js`) to first authenticate with the `/login` endpoint.
+- Store the received token in memory and append it to the WebSocket connection URL.
 
-Action (Hardware Detection): Implement the backend API endpoint (/api/capabilities) that executes arecord --dump-hw-params and parses the output for supported sample rates and bit depths.
+### Task 1.6: Enforce Go Style Guide
+- Run `gofmt -s -w .` and `go vet ./...` across the entire project to ensure code is formatted and free of common errors.
+- Manually review code for adherence to Google Go Style Guide conventions, particularly regarding variable naming, interface usage, and package organization.
 
-Action (Hardware Detection): Update web/src/components/Modals.jsx to dynamically populate the "Sample Rate" and "Bit Depth" dropdowns from the audioCaps prop, greying out unsupported options.
+## Priority 2: Core Systems and Frameworks
 
-Action (Channel Mapping): Modify internal/gstreamer/gstreamer.go to implement the deinterleave/interleave logic to dynamically select the stereo pair specified by the master_channels array in the config.
+### Task 2.1: AES70 Core Interfaces (Native Go Foundation)
+- Define the fundamental Go interfaces, data structures, and the `internal/aes70` package structure required to represent AES70 devices, their properties, and control commands.
+- Create placeholder methods for key functionalities like device discovery, parameter get/set, and event handling.
+- This task focuses on establishing the API contract and architectural hooks for AES70, making other components "ready" for its eventual full implementation.
+- *No actual AES70 protocol implementation is done in this task.*
 
-Step 2: Implement Disk Management (Auto-Purge)
+### Task 2.2: API Framework Refinement
+- In `internal/common/structs.go`, define standardized request/response structs for WebSocket commands.
+- Refactor the WebSocket message handling in `internal/websocket/websocket.go` into a more robust command dispatcher pattern to simplify adding new commands.
 
-Goal: Add the automated disk cleanup feature.
+### Task 2.3: Plugin System Architecture & Implementation
+- Define the primary `Plugin` interface in `internal/plugin/plugin.go`.
+- Implement a `PluginManager` in the same package to handle loading, initializing, and managing the lifecycle of plugins.
+- Design the communication channel (e.g., Go channels) between the core application and the plugins.
+- Refactor configuration loading in `internal/config/config.go` to handle a generic map of plugin settings, removing hardcoded structs.
 
-Action: Add auto_purge_enabled and auto_purge_threshold to config.json and the AutoRecordSettings struct in internal/config/config.go.
+### Task 2.4: Refactor Core Components into Plugins
+- Create a new directory `internal/plugins/icecast`. Move existing Icecast logic into this package and adapt it to the `Plugin` interface.
+- Create a new directory `internal/plugins/srt`. Move existing SRT logic into this package and adapt it to the `Plugin` interface.
+- Create a new directory `internal/plugins/jackwire2`. Move all JACK/PipeWire routing and control logic from `internal/pipewire` into this new package and adapt it to the `Plugin` interface.
+- Update API handlers and frontend calls (`useNixonApi.js`) to interact with all new plugins via the `PluginManager`'s generic methods.
 
-Action: Create a new background task StartDiskPurgeMonitor in internal/api/tasks.go that periodically checks disk usage and deletes the oldest, unprotected recording if the threshold is exceeded.
+## Priority 3: Feature Completion
 
-Action: Update cmd/nixon/main.go to launch this new goroutine.
+### Task 3.1: Recording Management (Backend)
+- Implement `StartRecording`, `StopRecording` functions in `internal/control/manager.go`.
+- Implement `ListRecordings` to read from the designated recordings directory.
+- Implement `DeleteRecording` to remove a specified file.
+- Wire these new functions to WebSocket commands in `internal/websocket/websocket.go`.
 
-Action: Update web/src/components/Modals.jsx to add the "Enable Auto-Purge" and "Purge Threshold" controls to the "Auto-Record" tab.
+### Task 3.2: Recording Management (Frontend)
+- Implement state management for recording status (e.g., recording, stopped) in `RecordingControl.jsx`.
+- Implement the UI buttons to send `start` and `stop` recording commands.
+- In `RecordingsList.jsx`, implement the logic to fetch the list of recordings on component mount.
+- Add UI elements to display each recording with buttons for download and delete.
 
-Phase 2: User Management (RBAC)
+### Task 3.3: Audio & MIDI Routing (Frontend)
+- Create a new "Routing" view/component in the React application.
+- Fetch and display lists of available audio/MIDI sources and sinks from the `jackwire2` plugin.
+- Implement a graphical interface (e.g., clickable lists, drag-and-drop) to allow users to create and remove connections between ports via the `jackwire2` plugin API.
 
-Step 3: Implement Authentication
+### Task 3.4: Multi-Device Discovery (mDNS only)
+- Integrate a Go mDNS/zeroconf library.
+- Register the Nixon service (`_nixon._tcp`) when the application starts.
+- Implement a discovery mechanism to continuously scan for other Nixon services.
+- Create a new UI component to display a list of discovered Nixon appliances on the network.
+- *This task focuses solely on local network discovery via mDNS, without AES70 control.*
 
-Goal: Create the foundation for a multi-user system.
+## Priority 4: Managed Appliance Upgrade System (APT-Centric)
 
-Action: Add user tables to the GORM database schema in internal/db/db.go.
+### Task 4.1: Go Migration Tooling & Atomic DB Control (R1, R4)
+- Integrate a dedicated, mature Go migration package (e.g., `golang-migrate/migrate`) for database schema changes.
+- Implement an external read-write lock on the SQLite file using a suitable Go library before starting any migration.
+- Ensure all SQL upgrade steps run within a single, atomic internal transaction.
 
-Action: Implement secure password hashing (e.g., bcrypt).
+### Task 4.2: Configuration Versioning & Merging (R2, R3)
+- Ensure `config.json` contains a mandatory `"ConfigVersion": "X.Y.Z"` field.
+- Implement logic to use `imdario/mergo` for non-destructive merges, prioritizing existing user-defined values and secrets over new defaults during configuration upgrades.
+- The helper executable should read the `ConfigVersion` to determine necessary transformations.
 
-Action: Create API endpoints for user login, logout, and session management.
+### Task 4.3: Companion Executable Development (R7)
+- Create a privileged Go binary (`cmd/nixon-upgrade-helper/main.go`).
+- Implement command-line flags/subcommands for Debian package hook stages (`preinst`, `postinst`, `pre-remove`, `post-remove`).
+- This executable will be responsible for orchestrating upgrade/downgrade actions.
 
-Action: Implement a login page/modal in the frontend.
+### Task 4.4: Integrity Guard & APT Lock (R5, R6)
+- Implement a mechanism in `cmd/nixon/main.go` to check for a "migration in progress" lock file on startup. If found, the application must refuse to start and prompt for recovery/revert.
+- Ensure the Debian package uses `apt-mark hold` to prevent uncontrolled, unattended upgrades, making the process explicitly user-initiated.
 
-Step 4: Implement Roles and Permissions
+### Task 4.5: Debian Packaging Integration (R8, R9, R10, R11)
+- Develop comprehensive `preinst`, `postinst`, `pre-remove`, and `post-remove` scripts for the Debian package.
+- These scripts will robustly call `nixon-upgrade-helper` with appropriate flags, handle state transitions, and ensure system integrity during all upgrade/downgrade phases.
+- Implement failure recovery and rollback mechanisms in `post-remove` to revert to the last known working state.
+- Ensure proper logging of upgrade steps and outcomes, with detailed errors for debugging.
 
-Goal: Restrict access based on user roles.
+### Task 4.6: Master-Slave Orchestration (R12, R13, R14, R15)
+- **Master-Side Trigger:** Implement logic on the Master unit to detect, notify, and remotely trigger `apt upgrade` on Slave units. This might involve SSH or an internal API for secure communication.
+- **Slave-Side Coordination:** Slaves will update and enter a "Ready for Adoption" state after their `postinst` script completes.
+- **Re-adoption:** The Master will re-adopt the updated Slaves via AES70 (once available) to re-establish control.
+- **Rollback:** Implement a rollback mechanism where the Master can revert Slaves to a previous working state if an upgrade fails on a Slave.
 
-Action: Define "Admin" and "User" roles with distinct permissions.
+### Task 4.7: Optional UI-Triggered Upgrade (R16)
+- Create a secure API endpoint on the Master unit that allows an administrator to initiate the upgrade process for specified Slaves.
+- This endpoint will call the underlying orchestration logic for Master-Slave upgrades.
+- Create a "System" page in the UI to display current versions, check for updates, and provide a button to trigger this process.
 
-Action: Secure all API endpoints with middleware that checks user authentication and role.
+## Priority 5: Advanced Monitoring and Professional Audio Transport (Single Device)
 
-Action: Update the database schema to add a user_id to the recordings table to track ownership.
+### Task 5.1: Advanced Monitoring
+- Integrate a system statistics library (e.g., gopsutil) to gather CPU, memory, and disk usage.
+- Stream these statistics over the WebSocket connection.
+- Create the `DiskUsage.jsx` component and other monitoring widgets to visualize this data in the UI.
 
-Action: Modify API handlers (e.g., handleGetRecordings, handleDeleteRecording) to enforce ownership.
+### Task 5.2: AES67 Plugin Development (via PipeWire)
+- Integrate a Go library or PipeWire integration method for AES67.
+- Develop a new plugin (`internal/plugins/aes67`) that leverages PipeWire to enable single-device AES67 audio transport.
+- Expose configuration and control options for AES67 via the plugin API.
 
-Action: Update the frontend settings UI to include a "User Management" section, visible only to Admins.
+### Task 5.3: AVB Plugin Development (via PipeWire)
+- Develop a new plugin (`internal/plugins/avb`) that leverages the existing PipeWire plugin for AVB to enable single-device AVB audio transport.
+- Expose configuration and control options for AVB via the plugin API.
+- *This task focuses on single-device AVB capabilities, utilizing the PipeWire plugin.*
 
-Phase 3: Networked Control & Routing
+## Priority 6: Full AES70 Control and Multi-Device Networking
 
-Step 5: Implement AES70 (OCA) Control Framework
+### Task 6.1: Full AES70 Protocol Implementation (Native Go)
+- Develop a comprehensive native Go library within the `internal/aes70` package based on the provided PDF reference documents and analysis of the JavaScript client/test tool.
+- Implement full AES70 device discovery, state management, command/control, and event handling, integrating with the interfaces defined in Task 2.1.
+- *This task is executed after all other local features and single-device networking are operational.*
 
-Goal: Replace the simple REST API with a robust, industry-standard control protocol.
-
-Action: Integrate an AES70 library for Go.
-
-Action: Refactor the backend to expose all controllable parameters (e.g., stream status, config settings, routing) as AES70 objects.
-
-Action: Update the frontend (useNixonApi.js) to send AES70 commands.
-
-Step 6: Implement Audio & MIDI Routing Matrix (Talkback)
-
-Goal: Enable advanced audio and MIDI routing for talkback and monitoring.
-
-Action: Develop the companion mobile app for remote control and PTT talkback.
-
-Action: Add a "Routing" tab to the Nixon UI to visualize and control the PipeWire/JACK graph.
-
-Action: Use AES70 commands (which trigger pw-link on the backend) to create and sever connections between audio and MIDI nodes.
-
-Action: Add backend logic to detect and expose PipeWire MIDI ports (USB, rtpmidi, etc.).
-
-Action: Implement the "Dynamic Talkback Port" feature from Phase 3, linking authenticated users to specific audio nodes in the graph.
-
-Step 7: Implement Multi-Device and P2P Networking
-
-Goal: Allow Nixon appliances to collaborate over a network.
-
-Action: Implement mDNS for automatic discovery of other Nixon units.
-
-Action: Use AES70 for inter-device control.
-
-Action: Implement the hybrid audio transport system (AVB/AES67 preferred, SRT fallback).
-
-Action: Implement the WebRTC "Jamming" feature, including the signaling server logic.
-
-Phase 4: Professional Integrations and Final Polish
-
-Step 8: Implement Professional AoIP (AVB/AES67)
-
-Goal: Integrate with professional audio networks.
-
-Action: Leverage the i226-v hardware and PipeWire foundation to add native support for AVB and AES67 (avbsrc / avbsink).
-
-Action: Investigate Dante compatibility via AES67.
-
-Step 9: Implement Workflow and Usability Features
-
-Goal: Add remaining high-value features from the roadmap.
-
-Action: Implement web player enhancements (waveform, tagging).
-
-Action: Implement the system diagnostics dashboard.
-
-Action: Implement post-recording hooks for file management.
-
-Action: Develop the Elgato Stream Deck plugin.
+### Task 6.2: Multi-Device Control (Leveraging Full AES70)
+- Develop the backend and frontend logic for master-slave control, allowing a primary Nixon unit to manage and orchestrate other Nixon units via the fully implemented AES70.
+- This includes features like synchronizing settings, initiating actions across devices, and monitoring their status.
+- *This task is executed after the full AES70 protocol implementation.*
