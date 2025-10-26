@@ -3,6 +3,7 @@ package control
 import (
 	"fmt"
 	"log"
+	"nixon/internal/common"
 	"nixon/internal/config"
 	"nixon/internal/pipewire"
 	"nixon/internal/websocket"
@@ -93,4 +94,18 @@ func (m *Manager) StopRecording() error {
 func (m *Manager) GetAudioDevices() ([]string, error) {
 	// This would interact with the audio backend (PipeWire/GStreamer)
 	return []string{"Default", "Microphone 1", "Line In"}, nil
+}
+
+// GetRecordings retrieves all recordings.
+func (m *Manager) GetRecordings() ([]common.Recording, error) {
+	// Placeholder implementation to satisfy the router.
+	log.Println("Manager: Getting recordings...")
+	return []common.Recording{}, nil
+}
+
+// DeleteRecording removes a recording.
+func (m *Manager) DeleteRecording(id uint) error {
+	// Placeholder implementation to satisfy the router.
+	log.Printf("Manager: Deleting recording %d...", id)
+	return nil
 }
