@@ -2,33 +2,33 @@ package api
 
 import (
 	"encoding/json"
-	"nixon/internal/logger"
+	"nixon/internal/slogger"
 	"net/http"
 	"nixon/internal/control"
 	"nixon/internal/websocket"
 	"os"
 	"path/filepath"
 	"strconv"
-	"github.com/rs/zerolog"
+	"log/slog"
 	"time"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
-// NewStructuredLogger creates a new middleware for structured logging with Zerolog.
-func NewStructuredLogger(logger zerolog.Logger) func(next http.Handler) http.Handler {
+// NewStructuredLogger creates a new middleware for structured logging with slog.
+func NewStructuredLogger(logger *slog.Logger) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		fn := func(w http.ResponseWriter, r *http.Request) {
 			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 			start := time.Now()
 
 			defer func() {
-				logger.Info().
-					Str("method", r.Method).
-					Stringer("url", r.URL).
-					Int("status", ww.Status()).
-					Int("bytes", ww.BytesWritten()).
-					Dur("latency_ms", time.Since(start)).
-					Msg("Request completed")
+				logger.Info("Request completed",
+					"method", r.Method,
+					"url", r.URL.String(),
+					"status", ww.Status(),
+					"bytes", ww.BytesWritten(),
+					"latency", time.Since(start),
+				)
 			}()
 
 			next.ServeHTTP(ww, r)
@@ -37,11 +37,20 @@ func NewStructuredLogger(logger zerolog.Logger) func(next http.Handler) http.Han
 	}
 }
 
+// respondWithError logs the detailed error and sends a standardized JSON error to the client.
+func respondWithError(w http.ResponseWriter, status int, err error, message string) {
+	slogger.Log.Error(message, "err", err)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": message})
+}
+
+
 // NewRouter creates a new router with all the application's routes.
 func NewRouter(ctrl *control.Manager) *chi.Mux {
 	r := chi.NewRouter()
 
-	r.Use(NewStructuredLogger(logger.Log))
+	r.Use(NewStructuredLogger(slogger.Log))
 	r.Use(middleware.Recoverer)
 
 	// WebSocket endpoint
@@ -80,12 +89,12 @@ func handleStreamStart(ctrl *control.Manager) http.HandlerFunc {
 			Type string `json:"type"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			respondWithError(w, http.StatusBadRequest, err, "Invalid request body")
 			return
 		}
 
 		if err := ctrl.StartStream(body.Type); err != nil {
-			http.Error(w, "Failed to start stream", http.StatusInternalServerError)
+			respondWithError(w, http.StatusInternalServerError, err, "Failed to start stream")
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -98,11 +107,11 @@ func handleStreamStop(ctrl *control.Manager) http.HandlerFunc {
 			Type string `json:"type"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			http.Error(w, "Invalid request body", http.StatusBadRequest)
+			respondWithError(w, http.StatusBadRequest, err, "Invalid request body")
 			return
 		}
 		if err := ctrl.StopStream(body.Type); err != nil {
-			http.Error(w, "Failed to stop stream", http.StatusInternalServerError)
+			respondWithError(w, http.StatusInternalServerError, err, "Failed to stop stream")
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -113,7 +122,7 @@ func handleRecordingStart(ctrl *control.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := ctrl.StartRecording()
 		if err != nil {
-			http.Error(w, "Failed to start recording", http.StatusInternalServerError)
+			respondWithError(w, http.StatusInternalServerError, err, "Failed to start recording")
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]uint{"id": id})
@@ -123,7 +132,7 @@ func handleRecordingStart(ctrl *control.Manager) http.HandlerFunc {
 func handleRecordingStop(ctrl *control.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := ctrl.StopRecording(); err != nil {
-			http.Error(w, "Failed to stop recording", http.StatusInternalServerError)
+			respondWithError(w, http.StatusInternalServerError, err, "Failed to stop recording")
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -134,7 +143,7 @@ func handleGetRecordings(ctrl *control.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		recordings, err := ctrl.GetRecordings()
 		if err != nil {
-			http.Error(w, "Failed to get recordings", http.StatusInternalServerError)
+			respondWithError(w, http.StatusInternalServerError, err, "Failed to get recordings")
 			return
 		}
 		json.NewEncoder(w).Encode(recordings)
@@ -146,12 +155,12 @@ func handleDeleteRecording(ctrl *control.Manager) http.HandlerFunc {
 		idStr := chi.URLParam(r, "id")
 		id, err := strconv.ParseUint(idStr, 10, 32)
 		if err != nil {
-			http.Error(w, "Invalid recording ID", http.StatusBadRequest)
+			respondWithError(w, http.StatusBadRequest, err, "Invalid recording ID")
 			return
 		}
 		if err := ctrl.DeleteRecording(uint(id)); err != nil {
-			logger.Log.Error().Err(err).Uint64("id", id).Msg("Error deleting recording")
-			http.Error(w, "Failed to delete recording", http.StatusInternalServerError)
+			respondWithError(w, http.StatusInternalServerError, err, "Failed to delete recording")
+
 			return
 		}
 		w.WriteHeader(http.StatusOK)
