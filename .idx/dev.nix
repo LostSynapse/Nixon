@@ -26,7 +26,10 @@
   ];
 
   # Sets environment variables in the workspace
-  env = {};
+  env = {
+    NIXON_ENV = "development";
+  };
+
   idx = {
     # Search for the extensions you want on https://open-vsx.org/ and use "publisher.id"
     extensions = [

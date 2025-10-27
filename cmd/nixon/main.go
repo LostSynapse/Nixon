@@ -2,20 +2,19 @@ package main
 
 import (
 	"fmt"
-	"nixon/internal/logger"
 	"net/http"
     "nixon/internal/slogger"
 	"nixon/internal/api"
 	"nixon/internal/config"
 	"nixon/internal/control"
 	"nixon/internal/websocket"
+    "os"
 )
 
 func main() {
 	slogger.InitSlogger()
-	logger.InitLogger()
 	// Load configuration
-	// CHANGED: Call config.LoadConfig() directly.
+	// CHANGED: Call config.LoadConfig() directly
 	// It now populates config.AppConfig globally and handles its own errors internally.
 	config.LoadConfig()
     
@@ -26,7 +25,9 @@ func main() {
 	// Initialize the Control Manager
 	ctrl, err := control.GetManager()
 	if err != nil {
-		logger.Log.Fatal().Err(err).Msg("Error initializing control manager")
+		slogger.Log.Error("Error initializing control manager", "err", err)
+os.Exit(1)
+
 	}
 
 	// Start background tasks
@@ -42,8 +43,10 @@ func main() {
 	// CHANGED: Access config directly from config.AppConfig.Web.ListenAddress
 	listenAddress := fmt.Sprintf(":%s", config.AppConfig.Web.ListenAddress)
 
-	logger.Log.Info().Str("listen_address", listenAddress).Msg("Server starting")
+	slogger.Log.Info("Server starting", "listen_address", listenAddress)
 	if err := http.ListenAndServe(listenAddress, router); err != nil {
-		logger.Log.Fatal().Err(err).Msg("Server failed")
+		slogger.Log.Error("Server failed", "err", err)
+		os.Exit(1)
+
 	}
 }

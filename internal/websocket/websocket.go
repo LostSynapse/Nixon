@@ -1,7 +1,7 @@
 package websocket
 
 import (
-	"nixon/internal/logger"
+	"nixon/internal/slogger"
 	"net/http"
 	"sync"
 
@@ -23,7 +23,7 @@ var (
 func Handler(w http.ResponseWriter, r *http.Request) {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		logger.Log.Error().Err(err).Msg("Failed to upgrade WebSocket connection")
+		slogger.Log.Error("Failed to upgrade WebSocket connection", "err", err)
 		return
 	}
 	defer ws.Close()
@@ -32,12 +32,12 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 	mutex.Lock()
 	clients[ws] = true
 	mutex.Unlock()
-	logger.Log.Info().Str("remote_addr", r.RemoteAddr).Msg("WebSocket client connected")
+	slogger.Log.Info("WebSocket client connected", "remote_addr", r.RemoteAddr)
 
 	// This loop is necessary to detect when a client disconnects.
 	for {
 		if _, _, err := ws.ReadMessage(); err != nil {
-			logger.Log.Info().Str("remote_addr", r.RemoteAddr).Msg("WebSocket client disconnected")
+			slogger.Log.Info("WebSocket client disconnected", "remote_addr", r.RemoteAddr)
 			mutex.Lock()
 			delete(clients, ws)
 			mutex.Unlock()
@@ -56,7 +56,7 @@ func HandleMessages() {
 		for client := range clients {
 			err := client.WriteMessage(websocket.TextMessage, msg)
 			if err != nil {
-				logger.Log.Warn().Err(err).Str("remote_addr", client.RemoteAddr().String()).Msg("WebSocket write error, closing client")
+				slogger.Log.Warn("WebSocket write error, closing client", "err", err, "remote_addr", client.RemoteAddr().String())
 				client.Close()
 				// Safely remove the client inside the read-lock is tricky.
 				// For simplicity, we let the read loop handle removal.
