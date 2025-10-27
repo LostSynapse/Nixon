@@ -1,0 +1,42 @@
+run:
+  # The default concurrency (number of CPU cores) is usually fine.
+  # timeout for analysis, e.g. 30s, 5m, default is 1m
+  timeout: 5m
+
+linters-settings:
+  govet:
+    # Enable all analyzers
+    enable-all: true
+  gofmt:
+    # simplify code: gofmt -s
+    simplify: true
+  goimports:
+    # Put local imports after third-party imports.
+    local-prefixes: nixon/
+  misspell:
+    # Correct commonly misspelled English words in comments and source code.
+    locale: US
+
+linters:
+  # We are disabling all linters by default and then explicitly enabling
+  # a curated list for a high signal-to-noise ratio.
+  disable-all: true
+  enable:
+    # Core Go tools
+    - gofmt      # Enforces formatting according to Go's standard style.
+    - govet      # Reports suspicious constructs, like unused variables.
+    - goimports  # Formats code and manages imports.
+
+    # High-quality, essential linters
+    - errcheck   # Checks for unchecked errors. Critical for Go.
+    - staticcheck # A suite of powerful static analysis checks.
+    - unused     # Checks for unused constants, functions, types, and variables.
+    - ineffassign # Detects when assignments to variables are not used.
+    - gosimple   # Suggests simplifications to your code.
+    - misspell   # Finds misspellings in comments.
+
+issues:
+  # Exclude all analysis of generated files.
+  exclude-use-default: false
+  exclude:
+    - "**/*_test.go" # Exclude test files from some checks if needed

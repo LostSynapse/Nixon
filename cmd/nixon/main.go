@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"nixon/internal/logger"
 	"net/http"
-
+    "nixon/internal/slogger"
 	"nixon/internal/api"
 	"nixon/internal/config"
 	"nixon/internal/control"
@@ -12,6 +12,7 @@ import (
 )
 
 func main() {
+	slogger.InitSlogger()
 	logger.InitLogger()
 	// Load configuration
 	// CHANGED: Call config.LoadConfig() directly.

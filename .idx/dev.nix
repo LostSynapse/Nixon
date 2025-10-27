@@ -10,7 +10,19 @@
     # pkgs.python311
     # pkgs.python311Packages.pip
      pkgs.nodejs_20
+     pkgs.golangci-lint
+    # Build tools required for CGo & GStreamer
+     pkgs.pkg-config
+     pkgs.gcc
     # pkgs.nodePackages.nodemon
+     pkgs.pipewire
+     pkgs.gst_all_1.gstreamer
+     pkgs.gst_all_1.gst-plugins-base # Core plugins (incl. ALSA)
+     pkgs.gst_all_1.gst-plugins-good # Good quality plugins and codecs
+     pkgs.gst_all_1.gst-plugins-bad  # Less common plugins (incl. SRT)
+     pkgs.gst_all_1.gst-plugins-ugly # Good plugins with potential licensing issues (incl. LAME for MP3)
+     pkgs.libshout
+     pkgs.nodePackages.npm
   ];
 
   # Sets environment variables in the workspace
@@ -18,6 +30,7 @@
   idx = {
     # Search for the extensions you want on https://open-vsx.org/ and use "publisher.id"
     extensions = [
+      "golang.go"
       # "vscodevim.vim"
     ];
 
