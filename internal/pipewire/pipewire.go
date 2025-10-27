@@ -1,8 +1,8 @@
 package pipewire
 
 import (
-	"nixon/internal/slogger"
 	"nixon/internal/common"
+	"nixon/internal/slogger"
 )
 
 // Manager handles PipeWire interactions.
@@ -16,7 +16,7 @@ func NewManager(socketPath string) (*Manager, error) {
 	if socketPath == "" {
 		slogger.Log.Warn("PipeWire socket path is empty. Using placeholder manager.")
 	}
-	
+
 	// In a real implementation, we would connect to the socket here.
 	return &Manager{socketPath: socketPath}, nil
 }

@@ -1,35 +1,24 @@
 package control
 
-import (
-	"nixon/internal/common"
-	"nixon/internal/config"
-	"time"
-)
+import "nixon/internal/common"
 
-// ControlHandler defines the abstraction layer for all system control
+// ControlHandler defines the high-level interface for managing the audio engine.
+// This abstraction allows the API layer to remain decoupled from the underlying
+// implementation (e.g., GStreamer, PipeWire).
 type ControlHandler interface {
-	// --- Audio Pipeline ---
-	StartRecording() (string, error)
+	// State Management
+	GetStatus() common.AudioStatus
+	StartAudio() error
+	StopAudio() error
+
+	// Recording Control
+	StartRecording() error
 	StopRecording() error
-	GetAudioStatus() common.AudioStatus
 
-	// --- Streaming ---
-	StartStream(streamName string) error
-	StopStream(streamName string) error
+	// Streaming Control
+	StartStream(streamType string) error
+	StopStream(streamType string) error
 
-	// --- Configuration ---
-	ReloadConfig()
-	GetConfig() config.Config
-	SaveConfig(cfg config.Config) error
-
-	// --- Hardware ---
-	ListAudioDevices() ([]common.AudioDevice, error)
-	GetAudioCapabilities(deviceName string) (common.AudioCapabilities, error)
-
-	// --- Database / Recordings ---
-	GetAllRecordings() ([]common.Recording, error)
-	GetRecordingByID(id uint) (*common.Recording, error)
-	UpdateRecording(id uint, notes string, genre string, endTime time.Time, duration time.Duration) error
-	DeleteRecording(id uint) error
+	// Device Management
+	GetAudioDevices() ([]common.AudioDevice, error)
 }
-

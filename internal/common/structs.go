@@ -21,7 +21,7 @@ type AudioStatus struct {
 	// --- Fields required by pipewire.go ---
 	ActiveStreams map[string]bool `json:"activeStreams,omitempty"`
 	VADStatus     bool            `json:"vadStatus,omitempty"`
-	MasterPeak    float64         `json:"masterPeak,omitempty"`    // Current master peak in dB
+	MasterPeak    float64         `json:"masterPeak,omitempty"`   // Current master peak in dB
 	LastVADEvent  time.Time       `json:"lastVadEvent,omitempty"` // Last time VAD triggered
 }
 

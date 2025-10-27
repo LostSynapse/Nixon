@@ -1,23 +1,22 @@
 package api
 
 import (
-	"github.com/go-playground/validator/v10"
+	"crypto/subtle"
 	"encoding/json"
-	"nixon/internal/slogger"
+	"errors"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-playground/validator/v10"
+	"log/slog"
 	"net/http"
+	"nixon/internal/config"
 	"nixon/internal/control"
+	"nixon/internal/slogger"
 	"nixon/internal/websocket"
 	"os"
 	"path/filepath"
 	"strconv"
-	"log/slog"
 	"time"
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"crypto/subtle"
-	"errors"
-	"nixon/internal/config"
-
 )
 
 var validate = validator.New()
@@ -95,19 +94,23 @@ func NewRouter(ctrl *control.Manager) *chi.Mux {
 		r.Post("/recording/stop", handleRecordingStop(ctrl))
 		r.Get("/recordings", handleGetRecordings(ctrl))
 		r.Delete("/recording/{id}", handleDeleteRecording(ctrl))
+		r.Get("/status", handleGetStatus(ctrl))
 	})
 
-	// Serve the SPA
+	// --- Serve the SPA ---
 	workDir, _ := os.Getwd()
-	staticDir := http.Dir(filepath.Join(workDir, "web", "dist"))
-	fileServer := http.FileServer(staticDir)
+	staticFilesPath := http.Dir(filepath.Join(workDir, "web", "dist"))
+	staticFileServer := http.FileServer(staticFilesPath)
 
-	// Serve static assets
-	r.Handle("/assets/*", fileServer)
-	r.Handle("/nixon_logo.svg", fileServer)
+	// Serve static files (like JS, CSS, images) from the /assets directory
+	r.Handle("/assets/*", http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(workDir, "web", "dist", "assets")))))
 
-	// For all other requests, serve the SPA's entry point
-	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+	// Serve other specific root files if needed (like favicon)
+	r.Handle("/nixon_logo.svg", staticFileServer)
+
+	// For all other requests that are not API calls, serve the SPA's entry point.
+	// This is the key for single-page application routing.
+	r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, filepath.Join(workDir, "web", "dist", "index.html"))
 	})
 
@@ -127,7 +130,7 @@ func handleStreamStart(ctrl *control.Manager) http.HandlerFunc {
 			respondWithError(w, http.StatusBadRequest, err, "Validation failed: "+err.Error())
 			return
 		}
-		
+
 		if err := ctrl.StartStream(body.Type); err != nil {
 			respondWithError(w, http.StatusInternalServerError, err, "Failed to start stream")
 			return
@@ -155,12 +158,11 @@ func handleStreamStop(ctrl *control.Manager) http.HandlerFunc {
 
 func handleRecordingStart(ctrl *control.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id, err := ctrl.StartRecording()
-		if err != nil {
+		if err := ctrl.StartRecording(); err != nil {
 			respondWithError(w, http.StatusInternalServerError, err, "Failed to start recording")
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]uint{"id": id})
+		w.WriteHeader(http.StatusOK)
 	}
 }
 
@@ -199,5 +201,14 @@ func handleDeleteRecording(ctrl *control.Manager) http.HandlerFunc {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
+	}
+
+}
+
+func handleGetStatus(ctrl *control.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		status := ctrl.GetStatus()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(status)
 	}
 }

@@ -1,111 +1,145 @@
 package control
 
 import (
-	"fmt"
-	"nixon/internal/slogger"
 	"nixon/internal/common"
 	"nixon/internal/config"
-	"nixon/internal/pipewire"
+	"nixon/internal/slogger"
 	"nixon/internal/websocket"
 	"sync"
 	"time"
 )
 
 var (
-	manager      *Manager
-	managerMutex = &sync.Mutex{}
+	managerInstance *Manager
+	once            sync.Once
 )
 
-// Manager orchestrates the streaming and recording processes.
+// Manager orchestrates the audio processing, recording, and streaming.
 type Manager struct {
-	pwManager *pipewire.Manager
-	// More fields would be added here, e.g., for managing recordings, stream outputs, etc.
+	// pipewireManager *pipewire.Manager // We will re-integrate this later.
+
+	status    common.AudioStatus
+	statusMux sync.RWMutex
 }
 
 // GetManager initializes and returns the singleton Manager instance.
 func GetManager() (*Manager, error) {
-	managerMutex.Lock()
-	defer managerMutex.Unlock()
-
-	if manager == nil {
-		cfg := config.AppConfig // This line was changed from config.GetConfig()
-		pwManager, err := pipewire.NewManager(cfg.Pipewire.Socket)
-		if err != nil {
-			return nil, fmt.Errorf("failed to initialize Pipewire manager: %w", err)
+	once.Do(func() {
+		managerInstance = &Manager{
+			status: common.AudioStatus{
+				State: common.StateStopped,
+			},
 		}
-
-		manager = &Manager{
-			pwManager: pwManager,
-		}
-	}
-
-	return manager, nil
+	})
+	return managerInstance, nil
 }
 
-// StartBackgroundTasks starts long-running processes for the application.
-func (m *Manager) StartBackgroundTasks() {
-	slogger.Log.Info("Starting control manager background tasks...")
-	go m.monitorVAD()
+// GetStatus returns the current audio status in a thread-safe way.
+func (m *Manager) GetStatus() common.AudioStatus {
+	m.statusMux.RLock()
+	defer m.statusMux.RUnlock()
+	return m.status
 }
 
-// monitorVAD checks for voice activity and broadcasts updates.
-func (m *Manager) monitorVAD() {
-	slogger.Log.Info("Starting VAD monitoring...")
-	ticker := time.NewTicker(2 * time.Second)
+// setStatus updates the current audio status and broadcasts it.
+func (m *Manager) setStatus(newStatus common.AudioStatus) {
+	m.statusMux.Lock()
+	m.status = newStatus
+	m.statusMux.Unlock()
+
+	// Broadcast the new status to all connected WebSocket clients.
+	websocket.BroadcastStatus(newStatus)
+}
+
+// StartAudio begins the main audio processing loop (VAD, etc.).
+func (m *Manager) StartAudio() error {
+	slogger.Log.Info("Control Manager: Starting audio processing...")
+
+	// In a real implementation, this would start the GStreamer/Pipewire pipeline.
+	// For now, we will just simulate the state change.
+
+	go m.simulateVAD()
+	return nil
+}
+
+// StopAudio stops the main audio processing loop.
+func (m *Manager) StopAudio() error {
+	slogger.Log.Info("Control Manager: Stopping audio processing.")
+	// TODO: Add logic to stop the simulateVAD goroutine.
+	return nil
+}
+
+// simulateVAD is a placeholder for the real VAD logic from GStreamer.
+// It will periodically toggle the recording state to test the UI.
+func (m *Manager) simulateVAD() {
+	slogger.Log.Info("Starting VAD simulation...")
+	isRecording := false
+	ticker := time.NewTicker(15 * time.Second) // Toggle every 15 seconds
 	defer ticker.Stop()
 
 	for range ticker.C {
-		// In a real implementation, we would check VAD status here.
-		// For now, we'll simulate broadcasting a status update.
-		websocket.Broadcast("{\"type\": \"vad_status\", \"active\": false}")
+		if isRecording {
+			slogger.Log.Debug("VAD SIM: Silence detected, stopping recording.")
+			m.StopRecording()
+			isRecording = false
+		} else {
+			slogger.Log.Debug("VAD SIM: Voice detected, starting recording.")
+			m.StartRecording()
+			isRecording = true
+		}
 	}
 }
 
-// StartStream starts a stream.
+// StartRecording starts a new recording.
+func (m *Manager) StartRecording() error {
+	slogger.Log.Info("Control Manager: Starting recording...")
+	cfg := config.AppConfig
+
+	// Here, you would interact with the database to create a new recording entry.
+	// For now, we just update the state.
+
+	m.setStatus(common.AudioStatus{
+		State:     common.StateRecording,
+		IsAutoRec: cfg.AutoRec.Enabled, // Reflect config
+	})
+	return nil
+}
+
+// StopRecording stops the current recording.
+func (m *Manager) StopRecording() error {
+	slogger.Log.Info("Control Manager: Stopping recording...")
+	m.setStatus(common.AudioStatus{
+		State: common.StateStopped,
+	})
+	return nil
+}
+
+// --- Placeholder methods to satisfy the interface ---
+
 func (m *Manager) StartStream(streamType string) error {
-	// Logic to start a stream, e.g., SRT or WebRTC
 	slogger.Log.Info("Starting stream", "stream_type", streamType)
 	return nil
 }
 
-// StopStream stops a stream.
 func (m *Manager) StopStream(streamType string) error {
 	slogger.Log.Info("Stopping stream", "stream_type", streamType)
 	return nil
 }
 
-// StartRecording starts a recording.
-func (m *Manager) StartRecording() (uint, error) {
-	// Logic to start a recording
-	slogger.Log.Info("Starting recording")
-
-	// Placeholder: Return a dummy recording ID and no error.
-	// In a real implementation, this would interact with the database.
-	return 1, nil
+func (m *Manager) GetAudioDevices() ([]common.AudioDevice, error) {
+	// Return dummy data for now
+	return []common.AudioDevice{
+		{DeviceName: "default", Description: "Default System Device"},
+	}, nil
 }
-
-// StopRecording stops the current recording.
-func (m *Manager) StopRecording() error {
-	slogger.Log.Info("Stopping recording")
-	return nil
-}
-
-// GetAudioDevices lists available audio devices.
-func (m *Manager) GetAudioDevices() ([]string, error) {
-	// This would interact with the audio backend (PipeWire/GStreamer)
-	return []string{"Default", "Microphone 1", "Line In"}, nil
-}
-
-// GetRecordings retrieves all recordings.
 func (m *Manager) GetRecordings() ([]common.Recording, error) {
-	// Placeholder implementation to satisfy the router.
-	slogger.Log.Debug("Manager: Getting recordings")
+	slogger.Log.Debug("Manager: GetRecordings called (placeholder)")
+	// In a real implementation, this would query the database.
 	return []common.Recording{}, nil
 }
 
-// DeleteRecording removes a recording.
 func (m *Manager) DeleteRecording(id uint) error {
-	// Placeholder implementation to satisfy the router.
-	slogger.Log.Info("Manager: Deleting recording", "recording_id", id)
+	slogger.Log.Debug("Manager: DeleteRecording called (placeholder)", "id", id)
+	// In a real implementation, this would delete from the database.
 	return nil
 }

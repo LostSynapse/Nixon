@@ -1,15 +1,15 @@
 package db
 
 import (
+	"context"
 	"fmt" // ADDED: Required for error formatting
-	"time"
-    "context"
-	"nixon/internal/slogger"
-	"log/slog"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
+	"log/slog"
 	"nixon/internal/common" // IMPORT: Use canonical structs
+	"nixon/internal/slogger"
+	"time"
 )
 
 var dbConn *gorm.DB
@@ -79,7 +79,7 @@ func Init(dsn string) error {
 	dbConn, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: NewGormSlogger().LogMode(gormlogger.Info),
 	})
-	
+
 	if err != nil {
 		return err
 	}
@@ -148,4 +148,3 @@ func GetRecordingByID(id uint) (*common.Recording, error) {
 	}
 	return &rec, nil
 }
-

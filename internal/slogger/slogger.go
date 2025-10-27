@@ -13,4 +13,3 @@ func InitSlogger() {
 	Log = slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	Log.Info("Slogger initialized")
 }
-

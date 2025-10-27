@@ -1,19 +1,18 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
-    "nixon/internal/slogger"
 	"nixon/internal/api"
 	"nixon/internal/config"
 	"nixon/internal/control"
+	"nixon/internal/slogger"
 	"nixon/internal/websocket"
-    "os"
-	"context"
-    "os/signal"
-    "syscall"
-    "time"
-
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 )
 
 func main() {
@@ -22,7 +21,7 @@ func main() {
 	// CHANGED: Call config.LoadConfig() directly
 	// It now populates config.AppConfig globally and handles its own errors internally.
 	config.LoadConfig()
-    
+
 	// REMOVED: Previous 'if err != nil { log.Fatalf(...) }' block
 	// REMOVED: Previous 'config.SetConfig(cfg)' call
 	// These are no longer needed as config.LoadConfig manages the global AppConfig.
@@ -31,12 +30,12 @@ func main() {
 	ctrl, err := control.GetManager()
 	if err != nil {
 		slogger.Log.Error("Error initializing control manager", "err", err)
-os.Exit(1)
+		os.Exit(1)
 
 	}
 
 	// Start background tasks
-	ctrl.StartBackgroundTasks()
+	ctrl.StartAudio()
 
 	// Start the WebSocket message broadcaster
 	go websocket.HandleMessages()

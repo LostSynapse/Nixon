@@ -43,11 +43,17 @@ function App() {
 
           {/* Column 1: Controls */}
           <div className="space-y-8">
-            <RecordingControl
-              isRecording={appStatus?.state === 'recording'}
-              onToggleRecording={toggleRecording}
-              isAutoRec={config?.autoRecord?.enabled}
-            />
+          <RecordingControl
+            status={appStatus?.state === 'recording'}
+            currentFile={appStatus?.currentRecFile}
+            onToggle={toggleRecording}
+            autoRecordEnabled={config?.autoRecord?.enabled}
+            // onSplit and onAutoToggle are not implemented in the hook yet, so we pass placeholders
+            onSplit={() => console.log('Split function not implemented')}
+            onAutoToggle={() => console.log('Auto-toggle function not implemented')}
+          />
+
+
             <StreamControl
               icecastConfig={config?.icecast}
               srtConfig={config?.srt}
@@ -72,14 +78,14 @@ function App() {
             {!isConnected && <p className="text-red-500">Connecting to server...</p>}
             {isConnected && appStatus && (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <DiskUsage used={appStatus.diskUsage} />
+                <DiskUsage used={appStatus?.diskUsage} />
                 <div className="bg-gray-800 p-4 rounded-lg text-center">
                   <h3 className="text-lg font-medium">CPU Usage</h3>
-                  <p className="text-3xl font-bold">{appStatus.cpuUsage?.toFixed(2) ?? 'N/A'}%</p>
+                  <p className="text-3xl font-bold">{appStatus?.cpuUsage?.toFixed(2) ?? 'N/A'}%</p>
                 </div>
                 <div className="bg-gray-800 p-4 rounded-lg text-center">
                   <h3 className="text-lg font-medium">Memory Usage</h3>
-                  <p className="text-3xl font-bold">{appStatus.memoryUsage?.toFixed(2) ?? 'N/A'}%</p>
+                  <p className="text-3xl font-bold">{appStatus?.memoryUsage?.toFixed(2) ?? 'N/A'}%</p>
                 </div>
               </div>
             )}

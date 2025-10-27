@@ -1,11 +1,12 @@
 package websocket
 
 import (
-	"nixon/internal/slogger"
-	"net/http"
-	"sync"
-
+	"encoding/json"
 	"github.com/gorilla/websocket"
+	"net/http"
+	"nixon/internal/common"
+	"nixon/internal/slogger"
+	"sync"
 )
 
 var (
@@ -64,6 +65,27 @@ func HandleMessages() {
 		}
 		mutex.RUnlock()
 	}
+}
+
+// BroadcastStatus sends the current AudioStatus to all connected clients.
+func BroadcastStatus(status common.AudioStatus) {
+	// Create a message envelope.
+	msg := struct {
+		Type    string             `json:"type"`
+		Payload common.AudioStatus `json:"payload"`
+	}{
+		Type:    "status_update",
+		Payload: status,
+	}
+
+	payloadBytes, err := json.Marshal(msg)
+	if err != nil {
+		slogger.Log.Error("Failed to marshal status for broadcast", "err", err)
+		return
+	}
+
+	// Send the marshaled message to the broadcast channel.
+	broadcast <- payloadBytes
 }
 
 // Broadcast sends a message to all connected WebSocket clients.

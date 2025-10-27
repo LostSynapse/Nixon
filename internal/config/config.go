@@ -1,10 +1,10 @@
 package config
 
 import (
-	"nixon/internal/slogger"
-	"strings"
-    "os"
 	"github.com/spf13/viper"
+	"nixon/internal/slogger"
+	"os"
+	"strings"
 )
 
 // Config holds the application configuration
@@ -95,15 +95,23 @@ func LoadConfig() {
 	viper.SetDefault("icecast.enabled", false)
 	viper.SetDefault("srt.enabled", false)
 	viper.SetDefault("pipewire.socket", "") // Default socket lets the library auto-discover
-    viper.SetDefault("web.secret", "nixon-default-secret")
+	viper.SetDefault("web.secret", "nixon-default-secret")
 
 	err := viper.ReadInConfig()
 	if err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			slogger.Log.Info("Config file not found, using defaults.")
+			slogger.Log.Warn("Config file not found. Attempting to create 'config.json' with default values.")
+			// Attempt to write a new config file. Use WriteConfigAs to specify the full filename.
+if writeErr := viper.WriteConfigAs("config.json"); writeErr != nil {
+	// If we can't write the config file, that's a fatal error.
+	slogger.Log.Error("Failed to write new config file", "err", writeErr)
+	os.Exit(1)
+}
+slogger.Log.Info("Successfully created 'config.json' with default settings.")
+
 		} else {
-					slogger.Log.Error("Fatal error reading config file", "err", err)
-		os.Exit(1)
+			slogger.Log.Error("Fatal error reading config file", "err", err)
+			os.Exit(1)
 
 		}
 	}
@@ -112,6 +120,6 @@ func LoadConfig() {
 	if err != nil {
 		slogger.Log.Error("Unable to decode config into struct", "err", err)
 		os.Exit(1)
-	
+
 	}
 }
