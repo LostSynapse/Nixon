@@ -9,6 +9,11 @@ import (
 	"nixon/internal/control"
 	"nixon/internal/websocket"
     "os"
+	"context"
+    "os/signal"
+    "syscall"
+    "time"
+
 )
 
 func main() {
@@ -43,10 +48,40 @@ os.Exit(1)
 	// CHANGED: Access config directly from config.AppConfig.Web.ListenAddress
 	listenAddress := fmt.Sprintf(":%s", config.AppConfig.Web.ListenAddress)
 
-	slogger.Log.Info("Server starting", "listen_address", listenAddress)
-	if err := http.ListenAndServe(listenAddress, router); err != nil {
-		slogger.Log.Error("Server failed", "err", err)
-		os.Exit(1)
-
+	// --- Graceful Shutdown Logic ---
+	server := &http.Server{
+		Addr:    listenAddress,
+		Handler: router,
 	}
+
+	// Create a channel to listen for OS signals
+	stopChan := make(chan os.Signal, 1)
+	signal.Notify(stopChan, os.Interrupt, syscall.SIGTERM)
+
+	// Run the server in a goroutine so that it doesn't block
+	go func() {
+		slogger.Log.Info("Server starting", "listen_address", listenAddress)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slogger.Log.Error("Server failed to start", "err", err)
+			os.Exit(1)
+		}
+	}()
+
+	// Block until a signal is received
+	<-stopChan
+	slogger.Log.Info("Shutdown signal received, starting graceful shutdown...")
+
+	// Create a deadline to wait for.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	// Doesn't block if no connections, but will otherwise wait until the timeout deadline.
+	if err := server.Shutdown(ctx); err != nil {
+		slogger.Log.Error("Server shutdown failed", "err", err)
+	}
+
+	// TODO: Add any other cleanup tasks here (e.g., closing DB, stopping manager)
+
+	slogger.Log.Info("Server exited gracefully")
+
 }

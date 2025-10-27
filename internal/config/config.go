@@ -21,6 +21,7 @@ type Config struct {
 // WebSettings configures the web server
 type WebSettings struct {
 	ListenAddress string `mapstructure:"listenAddress"`
+	Secret        string `mapstructure:"secret"`
 }
 
 // AudioSettings configures the audio processing
@@ -94,6 +95,7 @@ func LoadConfig() {
 	viper.SetDefault("icecast.enabled", false)
 	viper.SetDefault("srt.enabled", false)
 	viper.SetDefault("pipewire.socket", "") // Default socket lets the library auto-discover
+    viper.SetDefault("web.secret", "nixon-default-secret")
 
 	err := viper.ReadInConfig()
 	if err != nil {

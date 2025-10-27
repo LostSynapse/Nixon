@@ -1,11 +1,10 @@
 import { useState } from 'react';
-import './App.css';
 import Logo from './components/Logo';
 import RecordingControl from './components/RecordingControl';
 import StreamControl from './components/StreamControl';
 import RecordingsList from './components/RecordingsList';
 import DiskUsage from './components/DiskUsage';
-import useNixonApi from './hooks/useNixonApi';
+import { useNixonApi } from './hooks/useNixonApi';
 import { SettingsModal, AudioDeviceModal } from './components/Modals';
 
 function App() {

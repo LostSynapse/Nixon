@@ -1,6 +1,7 @@
 package api
 
 import (
+	"github.com/go-playground/validator/v10"
 	"encoding/json"
 	"nixon/internal/slogger"
 	"net/http"
@@ -13,7 +14,14 @@ import (
 	"time"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"crypto/subtle"
+	"errors"
+	"nixon/internal/config"
+
 )
+
+var validate = validator.New()
+
 // NewStructuredLogger creates a new middleware for structured logging with slog.
 func NewStructuredLogger(logger *slog.Logger) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -45,6 +53,29 @@ func respondWithError(w http.ResponseWriter, status int, err error, message stri
 	json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
 
+// wsAuthMiddleware protects the WebSocket endpoint with a token.
+func wsAuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Get the token from the ?token= query parameter.
+		token := r.URL.Query().Get("token")
+		if token == "" {
+			respondWithError(w, http.StatusUnauthorized, errors.New("missing token"), "Authentication token is required")
+			return
+		}
+
+		// Get the secret from the application configuration.
+		secret := config.AppConfig.Web.Secret
+
+		// Use subtle.ConstantTimeCompare to prevent timing attacks.
+		if subtle.ConstantTimeCompare([]byte(token), []byte(secret)) != 1 {
+			respondWithError(w, http.StatusForbidden, errors.New("invalid token"), "Invalid authentication token")
+			return
+		}
+
+		// If the token is valid, proceed to the actual WebSocket handler.
+		next.ServeHTTP(w, r)
+	})
+}
 
 // NewRouter creates a new router with all the application's routes.
 func NewRouter(ctrl *control.Manager) *chi.Mux {
@@ -54,7 +85,7 @@ func NewRouter(ctrl *control.Manager) *chi.Mux {
 	r.Use(middleware.Recoverer)
 
 	// WebSocket endpoint
-	r.Get("/ws", websocket.Handler)
+	r.With(wsAuthMiddleware).Get("/ws", websocket.Handler)
 
 	// API routes
 	r.Route("/api", func(r chi.Router) {
@@ -86,13 +117,17 @@ func NewRouter(ctrl *control.Manager) *chi.Mux {
 func handleStreamStart(ctrl *control.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Type string `json:"type"`
+			Type string `json:"type" validate:"required,oneof=srt icecast"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			respondWithError(w, http.StatusBadRequest, err, "Invalid request body")
 			return
 		}
-
+		if err := validate.Struct(body); err != nil {
+			respondWithError(w, http.StatusBadRequest, err, "Validation failed: "+err.Error())
+			return
+		}
+		
 		if err := ctrl.StartStream(body.Type); err != nil {
 			respondWithError(w, http.StatusInternalServerError, err, "Failed to start stream")
 			return
