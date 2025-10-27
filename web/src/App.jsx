@@ -54,11 +54,18 @@ function App() {
           />
 
 
-            <StreamControl
-              icecastConfig={config?.icecast}
-              srtConfig={config?.srt}
-              onToggleIcecast={toggleIcecast}
-              onToggleSRT={toggleSRT}
+          <StreamControl
+            title="Icecast Stream"
+            status={config?.icecast?.enabled}
+            onToggle={toggleIcecast}
+            // Listeners and peak are not yet available in the data model, so pass placeholders.
+            listeners={0} 
+            peak={0}
+          />
+          <StreamControl
+           title="SRT Stream"
+            status={config?.srt?.enabled}
+            onToggle={toggleSRT}
             />
           </div>
 
