@@ -25,56 +25,76 @@ export const useNixonApi = () => {
   const [recordings, setRecordings] = useState([]);
   const [audioCaps, setAudioCaps] = useState(null);
 
-  const socketRef = useRef(null);
-
-  const connectWebSocket = useCallback(() => {
-    const token = "nixon-default-secret";
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'; // ADDED/MODIFIED: Determine secure/insecure protocol
-    const socketUrl = `${wsProtocol}//${window.location.host}/ws?token=${token}`; // MODIFIED: Use wsProtocol
-        if (socketRef.current && socketRef.current.readyState < 2) return;
-
-    socketRef.current = new WebSocket(socketUrl);
-    socketRef.current.onopen = () => setIsConnected(true);
-    socketRef.current.onclose = () => {
-      setIsConnected(false);
-      setTimeout(connectWebSocket, 3000);
-    };
-    socketRef.current.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        if (message.type === 'status_update') {
-          setAppStatus(prev => ({ ...prev, ...message.payload }));
-        }
-      } catch (error) {
-        console.error("Error parsing WebSocket message:", error);
-      }
-    };
-    socketRef.current.onerror = (error) => console.error("WebSocket error:", error);
-  }, []);
+  const socketRef = useRef(null); // This will hold the active WebSocket instance
 
   useEffect(() => {
-    fetch('/api/status').then(res => res.json()).then(data => setAppStatus(data || initialStatus));
-    fetch('/api/recordings').then(res => res.json()).then(data => setRecordings(data || []));
-    
-    connectWebSocket();
+    const token = import.meta.env.VITE_WS_SECRET || "nixon-default-secret";
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const socketUrl = `${wsProtocol}//${window.location.host}/ws?token=${token}`;
 
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.onclose = null;
-        socketRef.current.close();
+    console.log('Attempting WebSocket connection...');
+    const ws = new WebSocket(socketUrl); // Create new WebSocket instance for this effect run
+
+    ws.onopen = () => {
+      setIsConnected(true);
+      console.log('WebSocket connection opened');
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.status) {
+          setAppStatus(data.status);
+        }
+        if (data.config) {
+          setConfig(data.config);
+        }
+        if (data.recordings) {
+          setRecordings(data.recordings);
+        }
+        if (data.audioCaps) {
+            setAudioCaps(data.audioCaps);
+        }
+      } catch (e) {
+        console.error("Failed to parse WebSocket message:", e, event.data);
       }
     };
-  }, [connectWebSocket]);
 
-  const toggleRecording = () => {
-    const endpoint = appStatus?.state === 'recording' ? '/api/recording/stop' : '/api/recording/start';
-    fetch(endpoint, { method: 'POST' });
-  };
+    ws.onclose = (event) => {
+      setIsConnected(false);
+      console.log('WebSocket connection closed', event);
+      // Removed auto-reconnect here. If a reconnect is desired, it should be managed
+      // by a parent component's state or a more sophisticated custom hook's retry logic
+      // that causes this useEffect to re-run, rather than directly within onclose.
+    };
 
-  return {
-    appStatus, config, recordings, audioCaps, isConnected,
-    handleConfigChange: () => {}, handleSaveSettings: () => {}, fetchAudioCaps: () => {},
-    toggleSRT: () => {}, toggleIcecast: () => {}, toggleRecording,
-    updateRecording: () => {}, toggleProtectRecording: () => {}, deleteRecording: () => {},
-  };
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
+      // It's crucial to explicitly close on error to ensure onclose handler is called
+      if (ws.readyState !== WebSocket.CLOSED) {
+        ws.close();
+      }
+    };
+
+    socketRef.current = ws; // Update the ref to the *current* active WebSocket instance
+
+    // Cleanup function: close the WebSocket when component unmounts or effect re-runs
+    return () => {
+      console.log('WebSocket cleanup: Closing connection for effect cleanup');
+      if (ws.readyState !== WebSocket.CLOSED) { // Close the specific 'ws' instance created by this effect run
+        ws.close(1000, "Component unmounted/effect cleanup"); // Code 1000 for normal closure
+      }
+      socketRef.current = null; // Clear the ref on cleanup
+    };
+  }, []); // Empty dependency array: effect runs once on mount, cleans up on unmount
+
+  const sendCommand = useCallback((command, payload) => {
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({ command, payload }));
+    } else {
+      console.warn("WebSocket is not open. Command not sent:", command);
+    }
+  }, []); // No dependencies needed for sendCommand as it uses socketRef.current
+
+  return { isConnected, appStatus, config, recordings, audioCaps, sendCommand };
 };

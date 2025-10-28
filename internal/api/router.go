@@ -61,12 +61,14 @@ func respondWithError(w http.ResponseWriter, status int, err error, message stri
 func wsAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := r.URL.Query().Get("token")
+		slogger.Log.Info("WebSocket Auth Debug", "received_token", token) // ADDED FOR DEBUG
 		if token == "" {
 			respondWithError(w, http.StatusUnauthorized, errors.New("missing token"), "Authentication token is required")
 			return
 		}
 
 		secret := config.AppConfig.Web.Secret
+		slogger.Log.Info("WebSocket Auth Debug", "expected_secret", secret) // ADDED FOR DEBUG
 		if subtle.ConstantTimeCompare([]byte(token), []byte(secret)) != 1 {
 			respondWithError(w, http.StatusForbidden, errors.New("invalid token"), "Invalid authentication token")
 			return
