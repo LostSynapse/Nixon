@@ -1,23 +1,85 @@
 package db
 
 import (
+	"context"
 	"fmt" // ADDED: Required for error formatting
-	"time"
-
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
+	gormlogger "gorm.io/gorm/logger"
+	"log/slog"
 	"nixon/internal/common" // IMPORT: Use canonical structs
+	"nixon/internal/slogger"
+	"time"
 )
 
 var dbConn *gorm.DB
+
+// GormSlogger is a custom GORM logger that uses slog.
+type GormSlogger struct {
+	logger *slog.Logger
+}
+
+// NewGormSlogger creates a new GORM logger instance.
+func NewGormSlogger() *GormSlogger {
+	return &GormSlogger{
+		// Add a "component" attribute to all logs from this logger
+		logger: slogger.Log.With("component", "gorm"),
+	}
+}
+
+// LogMode returns a new logger with the specified log level.
+func (l *GormSlogger) LogMode(level gormlogger.LogLevel) gormlogger.Interface {
+	// We can add level switching logic here later if needed.
+	return l
+}
+
+// Info logs an info message.
+func (l *GormSlogger) Info(ctx context.Context, msg string, data ...interface{}) {
+	l.logger.InfoContext(ctx, fmt.Sprintf(msg, data...))
+}
+
+// Warn logs a warning message.
+func (l *GormSlogger) Warn(ctx context.Context, msg string, data ...interface{}) {
+	l.logger.WarnContext(ctx, fmt.Sprintf(msg, data...))
+}
+
+// Error logs an error message.
+func (l *GormSlogger) Error(ctx context.Context, msg string, data ...interface{}) {
+	l.logger.ErrorContext(ctx, fmt.Sprintf(msg, data...))
+}
+
+// Trace logs a SQL query.
+func (l *GormSlogger) Trace(ctx context.Context, begin time.Time, fc func() (sql string, rowsAffected int64), err error) {
+	// Don't log successful traces if the global log level is higher than Debug.
+	if err == nil && !l.logger.Enabled(ctx, slog.LevelDebug) {
+		return
+	}
+
+	elapsed := time.Since(begin)
+	sql, rows := fc()
+
+	attrs := []slog.Attr{
+		slog.String("sql", sql),
+		slog.Int64("rows", rows),
+		slog.Duration("elapsed", elapsed),
+	}
+
+	if err != nil {
+		// Add the error to the attributes and log at the Error level.
+		attrs = append(attrs, slog.Any("err", err))
+		l.logger.LogAttrs(ctx, slog.LevelError, "GORM query failed", attrs...)
+	} else {
+		l.logger.LogAttrs(ctx, slog.LevelDebug, "GORM query", attrs...)
+	}
+}
 
 // Init initializes the database connection.
 func Init(dsn string) error {
 	var err error
 	dbConn, err = gorm.Open(sqlite.Open(dsn), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info),
+		Logger: NewGormSlogger().LogMode(gormlogger.Info),
 	})
+
 	if err != nil {
 		return err
 	}
@@ -86,4 +148,3 @@ func GetRecordingByID(id uint) (*common.Recording, error) {
 	}
 	return &rec, nil
 }
-

@@ -1,106 +1,127 @@
 package config
 
 import (
-	"log"
-	"sync"
-
 	"github.com/spf13/viper"
+	"nixon/internal/slogger"
+	"os"
+	"strings"
 )
 
-// Config holds the application's configuration.
+// Config holds the application configuration
 type Config struct {
-	Pipewire        PipewireSettings  `json:"pipewire"`
-	Recording       RecordingSettings `json:"recording"`
-	NetworkSettings NetworkSettings   `json:"networkSettings"`
-	SrtSettings     SrtSettings       `json:"srtSettings"`
-	IcecastSettings IcecastSettings   `json:"icecastSettings"`
+	Web      WebSettings      `mapstructure:"web"`
+	Audio    AudioSettings    `mapstructure:"audio"`
+	AutoRec  AutoRecord       `mapstructure:"autoRecord"`
+	Icecast  IcecastSettings  `mapstructure:"icecast"`
+	SRT      SrtSettings      `mapstructure:"srt"`
+	Database DatabaseSettings `mapstructure:"database"`
+	Pipewire PipewireSettings `mapstructure:"pipewire"`
 }
 
-// PipewireSettings holds PipeWire-related config.
-type PipewireSettings struct {
-	Socket string `json:"socket"`
+// WebSettings configures the web server
+type WebSettings struct {
+	ListenAddress string `mapstructure:"listenAddress"`
+	Secret        string `mapstructure:"secret"`
+	WebDevServerURL string `mapstructure:"webDevServerURL"` // ADDED: URL for the Vite development server
 }
 
-// RecordingSettings holds recording configuration.
-type RecordingSettings struct {
-	Enabled     bool   `json:"enabled"`
-	Directory   string `json:"directory"`
-	FilePattern string `json:"filePattern"`
-	FileFormat  string `json:"fileFormat"`
+// AudioSettings configures the audio processing
+type AudioSettings struct {
+	DeviceName string `mapstructure:"deviceName"`
+	SampleRate int    `mapstructure:"sampleRate"`
 }
 
-// NetworkSettings holds WebRTC and signaling server config.
-type NetworkSettings struct {
-	SignalingURL string `json:"signalingUrl"`
-	StunURL      string `json:"stunUrl"`
+// AutoRecord configures the automatic recording feature
+type AutoRecord struct {
+	Enabled       bool    `mapstructure:"enabled"`
+	VADThreshold  float64 `mapstructure:"vadThreshold"`
+	VADGraceTime  int     `mapstructure:"vadGraceTime"`
+	MaxRecordMins int     `mapstructure:"maxRecordMins"`
 }
 
-// SrtSettings holds SRT streaming config.
-type SrtSettings struct {
-	SrtEnabled bool   `json:"srtEnabled"`
-	SrtHost    string `json:"srtHost"`
-	SrtPort    int    `json:"srtPort"`
-	SrtStream  string `json:"srtStream"`
-	SrtLatency int    `json:"srtLatency"`
-}
-
-// IcecastSettings holds Icecast streaming config.
+// IcecastSettings configures the Icecast output
 type IcecastSettings struct {
-	IcecastEnabled   bool   `json:"icecastEnabled"`
-	IcecastHost      string `json:"icecastHost"`
-	IcecastPort      int    `json:"icecastPort"`
-	IcecastUser      string `json:"icecastUser"`
-	IcecastPassword  string `json:"icecastPassword"`
-	IcecastMount     string `json:"icecastMount"`
-	IcecastBitrate   int    `json:"icecastBitrate"`
-	IcecastGenre     string `json:"icecastGenre"`
-	IcecastName      string `json:"icecastName"`
-	IcecastPublic    bool   `json:"icecastPublic"`
-	IcecastDescription string `json:"icecastDescription"`
+	Enabled      bool   `mapstructure:"enabled"`
+	Host         string `mapstructure:"host"`
+	Port         int    `mapstructure:"port"`
+	Password     string `mapstructure:"password"`
+	Mountpoint   string `mapstructure:"mountpoint"`
+	StreamName   string `mapstructure:"streamName"`
+	StreamDesc   string `mapstructure:"streamDesc"`
+	StreamURL    string `mapstructure:"streamURL"`
+	StreamGenre  string `mapstructure:"streamGenre"`
+	StreamPublic bool   `mapstructure:"streamPublic"`
 }
 
-var (
-	conf Config
-	once sync.Once
-	v    *viper.Viper
-)
+// SrtSettings configures the SRT output
+type SrtSettings struct {
+	Enabled   bool   `mapstructure:"enabled"`
+	Address   string `mapstructure:"address"`
+	Port      int    `mapstructure:"port"`
+	Passphase string `mapstructure:"passphase"`
+	Latency   int    `mapstructure:"latency"`
+	StreamID  string `mapstructure:"streamId"`
+}
 
-// Load initializes the configuration from file.
-// It returns the loaded config and an error if one occurred.
-func Load() (Config, error) {
-	var err error
-	once.Do(func() {
-		v = viper.New()
-		v.SetConfigName("config")
-		v.SetConfigType("json")
-		v.AddConfigPath(".")
-		v.AddConfigPath("/etc/nixon/")
-		v.AddConfigPath("$HOME/.nixon/")
+// DatabaseSettings configures the database connection
+type DatabaseSettings struct {
+	Path string `mapstructure:"path"`
+}
 
-		// Set default values
-		v.SetDefault("pipewire.socket", "pipewire-0")
-		v.SetDefault("recording.enabled", true)
-		v.SetDefault("recording.directory", "./recordings")
-		v.SetDefault("recording.filePattern", "rec_{YYYY}-{MM}-{DD}_{hh-mm-ss}")
-		v.SetDefault("recording.fileFormat", "flac")
+// PipewireSettings configures the Pipewire connection
+type PipewireSettings struct {
+	Socket string `mapstructure:"socket"`
+}
 
-		if err = v.ReadInConfig(); err != nil {
-			log.Printf("Warning: Could not read config file: %v. Using defaults.", err)
+var AppConfig Config
+
+// LoadConfig reads configuration from file or environment variables.
+func LoadConfig() {
+	viper.SetConfigName("config")
+	viper.SetConfigType("json")
+	viper.AddConfigPath(".")
+	viper.AddConfigPath("/etc/nixon/")
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	viper.AutomaticEnv()
+
+	// Set default values here
+	viper.SetDefault("web.listenAddress", "8080")
+	viper.SetDefault("database.path", "nixon.db")
+	viper.SetDefault("audio.deviceName", "default")
+	viper.SetDefault("audio.sampleRate", 48000)
+	viper.SetDefault("autoRecord.enabled", false)
+	viper.SetDefault("autoRecord.vadThreshold", 0.7)
+	viper.SetDefault("autoRecord.vadGraceTime", 2)
+	viper.SetDefault("autoRecord.maxRecordMins", 60)
+	viper.SetDefault("icecast.enabled", false)
+	viper.SetDefault("srt.enabled", false)
+	viper.SetDefault("pipewire.socket", "") // Default socket lets the library auto-discover
+	viper.SetDefault("web.secret", "nixon-default-secret")
+	viper.SetDefault("web.webDevServerURL", "") // ADDED: Default empty, will be set by env for dev
+
+	err := viper.ReadInConfig()
+	if err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+			slogger.Log.Warn("Config file not found. Attempting to create 'config.json' with default values.")
+			// Attempt to write a new config file. Use WriteConfigAs to specify the full filename.
+if writeErr := viper.WriteConfigAs("config.json"); writeErr != nil {
+	// If we can't write the config file, that's a fatal error.
+	slogger.Log.Error("Failed to write new config file", "err", writeErr)
+	os.Exit(1)
+}
+slogger.Log.Info("Successfully created 'config.json' with default settings.")
+
+		} else {
+			slogger.Log.Error("Fatal error reading config file", "err", err)
+			os.Exit(1)
+
 		}
+	}
 
-		if err = v.Unmarshal(&conf); err != nil {
-			log.Fatalf("Fatal error: could not unmarshal config: %v", err)
-		}
-	})
-	return conf, err
-}
+	err = viper.Unmarshal(&AppConfig)
+	if err != nil {
+		slogger.Log.Error("Unable to decode config into struct", "err", err)
+		os.Exit(1)
 
-// GetConfig returns the singleton config instance.
-func GetConfig() Config {
-	return conf
-}
-
-// SetConfig sets the global config instance (useful for testing).
-func SetConfig(c Config) {
-	conf = c
+	}
 }
