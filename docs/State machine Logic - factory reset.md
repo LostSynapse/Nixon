@@ -23,7 +23,7 @@ You then asked for the specific steps for each state. The following is the detai
 
     * **State `1` (User Setup):** On detecting this state, the web server must serve a dedicated "Setup Wizard" UI instead of the main application.
 
-* **Setup Wizard UI:** This UI must guide the user through:
+* **Setup Wizard UI:** This UI will guide the user through:
     1.  Selecting an expertise level (Standard, Power User, Professional) to set the UI mode.
     2.  Setting a custom hostname (pre-filled with the generated one).
     3.  Creating an optional administrator account (display a persistent warning on the main UI if skipped).

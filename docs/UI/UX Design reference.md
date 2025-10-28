@@ -145,7 +145,7 @@ For the frontend to render a module, the module **must** provide the following m
       * `Broadcast`: (e.g., Icecast, SRT). Participates in "LIVE" aggregation.
       * `Transport`: (e.g., JACK, AES67, PipeWire). Does not participate in "LIVE" aggregation.
       * `Utility`: (e.g., RBAC, System Monitor).
-  * **`minLevel` (string):** The minimum complexity level (`Standard`, `Advanced`, `Professional`, `Developer`) required for this module to be visible.
+  * **`minLevel` (string):** The minimum **Feature Level** (`Standard`, `Advanced`, `Professional`, `Developer`) required for this module to be visible.
   * **`requiresInitialConfig` (boolean, optional):** If `true`, this flag triggers the "First Run" UI behavior (Section 6.4) when the module is first enabled.
 
 ### 6.3 Module State & Resource Conservation
@@ -157,7 +157,7 @@ The Broker **must** maintain a persistent **Plugin Status Table** containing `pl
 
 ### 6.4 Module "First Run" UI Behavior
 
-When a user enables a module with the `requiresInitialConfig: true` flag, the Broker **must** instruct the frontend to act based on the user's active **Complexity Level**:
+When a user enables a module with the `requiresInitialConfig: true` flag, the Broker **must** instruct the frontend to act based on the user's active **Feature Level**:
 
   * **Standard:** The frontend **must forcibly redirect** the user to the module's settings page (Section 8.2).
   * **Advanced:** The frontend **must open a modal dialog** confirming the plugin is enabled and prompting the user to "Configure Now" (redirects) or "Configure Later" (dismisses).
@@ -174,7 +174,7 @@ To support a modular ecosystem, the Broker and UI must support the full plugin l
 
 ## 7.0 UI/UX Principles & Frontend Mandates
 
-### 7.1 Hierarchical Complexity Levels
+### 7.1 Hierarchical Feature Levels
 
 The entire UI operates on four, system-wide, hierarchical levels:
 
@@ -185,7 +185,7 @@ The entire UI operates on four, system-wide, hierarchical levels:
 
 ### 7.2 Global State & Dynamic Configuration
 
-  * **Frontend:** The active complexity level is stored in a **Global React Context** (`useComplexityLevel()`).
+  * **Frontend:** The active **Feature Level** is stored in a **Global React Context** (`useFeatureLevel()`).
   * **Backend:** The Go Backend is responsible for filtering all configuration JSON based on the active level.
   * **Data Flow:** The frontend receives a simple, pre-filtered JSON payload (via the initial HTTP GET) containing only the settings and widgets relevant to the user's active level.
   * **Visibility:** If a user is at the "Standard" level, the UI does not load or render "Professional" level modules or settings. They are not grayed out; they are **not present**.
@@ -203,7 +203,7 @@ To ensure the UI is robust, professional, and operable by power users and assist
 
 To provide a seamless user experience, non-critical, transient UI state **must** be persisted in the browser's **`localStorage`**.
 
-  * **Scope:** This includes, but is not limited to, the user's selected **Complexity Level** (7.1), the "open/closed" state of sidebars, and the last-active tab on any given settings page.
+  * **Scope:** This includes, but is not limited to, the user's selected **Feature Level** (7.1), the "open/closed" state of sidebars, and the last-active tab on any given settings page.
   * **Benefit:** This ensures the UI "remembers" the user's context on a page refresh without requiring any backend state management.
 
 ### 7.5 Contextual Help System
@@ -285,7 +285,7 @@ The Central Broker will manage the complete state of both the "Start All" and "S
 
 ### 8.5 Dynamic Dashboard Layout Editor
 
-This feature provides users (at a designated complexity level, e.g., **Advanced** and above) the ability to fully customize their primary dashboard view.
+This feature provides users (at a designated **Feature Level**, e.g., **Advanced** and above) the ability to fully customize their primary dashboard view.
 
   * **Implementation:** Uses a **React Grid Layout** library (e.g., `react-grid-layout`) to manage draggable and resizable `Widget Components`.
   * **Performance (Code Splitting):** The JavaScript and CSS for each `Widget Component` **must** be code-split (e.g., using `React.lazy()`) and loaded on-demand.
@@ -342,7 +342,40 @@ All user-generated input **must** be sanitized and validated on **both the front
 
 ## 10.0 First-Time Setup (Configuration Wizard)
 
-  * **Trigger:** The backend **must** provide a "one-shot" configuration flag (e.g., `isConfigured: false`).
-  * **Action:** If this flag is `false`, the frontend **must** redirect the user to a **Configuration Wizard** upon login.
-  * **Scope:** This wizard will guide the user through mandatory setup steps, such as setting the desired **Complexity Level** and (Optional) Configuring the **RBAC / User Login** module.
+  * **Trigger:** If the backend provides the appropriate "first start" configuration flag, the frontend will load the standard interface and immediately display a **modal window** containing the setup wizard.
+  * **Core Design:** This wizard is **optional** and intended to guide users, not block them. The system is ready for use out-of-the-box with "Standard" defaults.
+      * A **"Cancel"** button is always visible in the top right of the modal.
+      * "Next" / "Back" buttons are provided on each page as appropriate.
+  * **Completion Logic:** Clicking "Cancel" at any step or "Finish" at the end **must** signal to the backend that the setup wizard is complete. The frontend will then close the modal and continue running.
+
+### 10.1 Wizard Page Flow
+
+1.  **Page 1: Welcome & Core Configuration**
+
+      * Contains a welcome note.
+      * **Feature Level:** Guides the user to choose their desired **Feature Level** (Standard, Advanced, Professional), with a brief description of each.
+          * Includes a note that the Feature Level can be changed at any time in the settings menu.
+          * If the user cancels at this step, the frontend will notify the backend of completion and continue to run with the default "Standard" Feature Level.
+      * **Hostname:** Provides a text input to configure the system's hostname.
+
+2.  **Page 2: Audio Interface**
+
+      * Prompts the user to configure the primary audio interface.
+      * The level of detail on this page **must** be dependent on the **Feature Level** selected in Page 1.
+      * **Standard Level:** Presents a simple dropdown of all available audio hardware, a dropdown for sample rate, and a dropdown for bit depth.
+      * **OEM Appliances:** This step may be pre-configured and show the current settings.
+      * **Defaults:** If not pre-configured, the system will default to `44.1kHz` and `16-bit`.
+
+3.  **Page 3: Access & Security (RBAC)**
+
+      * Prompts the user to configure security settings, with a (discouraged) option to skip this step.
+      * **Standard Level:** A simple form to set a username, real name, and set/confirm a password for the primary user.
+      * **Advanced / Professional Levels:** Includes the Standard-level form, plus an option to add other users and assign one of the default roles.
+
+4.  **Page 4: Finish**
+
+      * A final page with a congratulatory note, well wishes, and relevant support information.
+
+<!-- end list -->
+
   * **Extensibility:** This core wizard is *not* designed to be extended by third-party plugins, as it handles fundamental system setup.
