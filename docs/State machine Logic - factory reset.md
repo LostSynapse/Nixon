@@ -29,4 +29,4 @@ You then asked for the specific steps for each state. The following is the detai
     3.  Creating an optional administrator account (display a persistent warning on the main UI if skipped).
     4.  Selecting the primary audio device.
     
-    Upon completion or skipping, it must call an API endpoint that sets `systeminitialize = 0`.
+    Upon completion or skipping, it must call an API endpoint that sets `systeminitialize = 0`

@@ -345,4 +345,4 @@ All user-generated input **must** be sanitized and validated on **both the front
   * **Trigger:** The backend **must** provide a "one-shot" configuration flag (e.g., `isConfigured: false`).
   * **Action:** If this flag is `false`, the frontend **must** redirect the user to a **Configuration Wizard** upon login.
   * **Scope:** This wizard will guide the user through mandatory setup steps, such as setting the desired **Complexity Level** and (Optional) Configuring the **RBAC / User Login** module.
-  * **Extensibility:** This core wizard is *not* designed to be extended by third-party plugins, as it handles fundamental system setup.
+  * **Extensibility:** This core wizard is *not* designed to be extended by third-party plugins, as it handles fundamental system setup
