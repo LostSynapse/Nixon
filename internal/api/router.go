@@ -130,11 +130,19 @@ func NewRouter(ctrl *control.Manager) *chi.Mux {
 		slogger.Log.Info("Production mode: Serving static frontend files from 'web/dist'")
 		workDir, _ := os.Getwd()
 		staticDir := filepath.Join(workDir, "web", "dist")
-		r.Handle("/assets/*", http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(staticDir, "assets")))))
-		r.Handle("/nixon_logo.svg", http.FileServer(http.Dir(staticDir)))
-		r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
-			http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
-		})
+    	fs := http.FileServer(http.Dir(staticDir)) // ADDED: Create the file server
+     	r.Get("/*", func(w http.ResponseWriter, r *http.Request) { // ADDED: Catch-all handler
+     			// Check if the requested file exists in the static directory.
+     			// Note: We need to clean the path to prevent directory traversal attacks with os.Stat
+     			requestedPath := filepath.Join(staticDir, filepath.Clean(r.URL.Path))
+     			if _, err := os.Stat(requestedPath); os.IsNotExist(err) {
+     				// File does not exist, serve index.html for SPA routing.
+     				http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
+     				return
+     			}
+     			// File exists, let the file server handle it.
+     			fs.ServeHTTP(w, r)
+     		}) // ADDED: End of catch-all handler
 	}
 	return r
 }
