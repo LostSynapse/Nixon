@@ -1,7 +1,8 @@
 {
   "web": {
     "listenAddress": "8080",
-    "secret": "nixon-default-secret"
+    "secret": "nixon-default-secret",
+    "webDevServerURL": "http://localhost:5173"
   },
   "audio": {
     "deviceName": "default",

@@ -4,22 +4,24 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/go-playground/validator/v10"
+	"fmt"
 	"log/slog"
 	"net/http"
-	"net/http/httputil" // ADDED: For reverse proxy
-    "net/url"           // ADDED: For parsing URLs
-	"nixon/internal/config"
-	"nixon/internal/control"
-	"nixon/internal/slogger"
-	"nixon/internal/websocket"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"time"
-	
+
+	"nixon/internal/config"
+	"nixon/internal/control"
+	"nixon/internal/slogger"
+	"nixon/internal/websocket"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-playground/validator/v10"
 )
 
 var validate = validator.New()
@@ -58,88 +60,93 @@ func respondWithError(w http.ResponseWriter, status int, err error, message stri
 // wsAuthMiddleware protects the WebSocket endpoint with a token.
 func wsAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Get the token from the ?token= query parameter.
 		token := r.URL.Query().Get("token")
 		if token == "" {
 			respondWithError(w, http.StatusUnauthorized, errors.New("missing token"), "Authentication token is required")
 			return
 		}
 
-		// Get the secret from the application configuration.
 		secret := config.AppConfig.Web.Secret
-
-		// Use subtle.ConstantTimeCompare to prevent timing attacks.
 		if subtle.ConstantTimeCompare([]byte(token), []byte(secret)) != 1 {
 			respondWithError(w, http.StatusForbidden, errors.New("invalid token"), "Invalid authentication token")
 			return
 		}
-
-		// If the token is valid, proceed to the actual WebSocket handler.
 		next.ServeHTTP(w, r)
 	})
 }
 
-// NewRouter creates a new router with all the application's routes.
-func NewRouter(ctrl *control.Manager, webDevServerURL string) *chi.Mux { // MODIFIED: Added webDevServerURL param
+// apiRouter creates a new sub-router for all API endpoints. This isolates API logic.
+func apiRouter(ctrl *control.Manager) http.Handler {
+	r := chi.NewRouter()
+	r.Get("/status", handleGetStatus(ctrl))
+	r.Post("/stream/start", handleStreamStart(ctrl))
+	r.Post("/stream/stop", handleStreamStop(ctrl))
+	r.Post("/recording/start", handleRecordingStart(ctrl))
+	r.Post("/recording/stop", handleRecordingStop(ctrl))
+	r.Get("/recordings", handleGetRecordings(ctrl))
+	r.Delete("/recording/{id}", handleDeleteRecording(ctrl))
+	return r
+}
 
+// NewRouter creates the main router, mounting the API and frontend handlers.
+func NewRouter(ctrl *control.Manager) *chi.Mux {
 	r := chi.NewRouter()
 
+	// --- Core Middleware ---
 	r.Use(NewStructuredLogger(slogger.Log))
 	r.Use(middleware.Recoverer)
 
-	// WebSocket endpoint
+	// --- Application Routes ---
+	r.Mount("/api", apiRouter(ctrl))
 	r.With(wsAuthMiddleware).Get("/ws", websocket.Handler)
 
-	// API routes
-	r.Route("/api", func(r chi.Router) {
-		r.Post("/stream/start", handleStreamStart(ctrl))
-		r.Post("/stream/stop", handleStreamStop(ctrl))
-		r.Post("/recording/start", handleRecordingStart(ctrl))
-		r.Post("/recording/stop", handleRecordingStop(ctrl))
-		r.Get("/recordings", handleGetRecordings(ctrl))
-		r.Delete("/recording/{id}", handleDeleteRecording(ctrl))
-		r.Get("/status", handleGetStatus(ctrl))
-	})
+	// --- Frontend Handling (Proxy for Dev, Static for Prod) ---
+	webDevServerURL := config.AppConfig.Web.WebDevServerURL
+	if webDevServerURL != "" {
+		slogger.Log.Info("Development mode: Proxying frontend to Vite dev server", "url", webDevServerURL)
+		remote, err := url.Parse(webDevServerURL)
+		if err != nil {
+			slogger.Log.Error("Invalid Vite server URL, cannot start proxy.", "err", err, "url", webDevServerURL)
+		} else {
+			proxy := httputil.NewSingleHostReverseProxy(remote)
+			proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+				slogger.Log.Error("Vite dev server proxy error", "err", err, "path", r.URL.Path)
+				w.WriteHeader(http.StatusBadGateway)
+				w.Header().Set("Content-Type", "text/html")
+				fmt.Fprintf(w, `
+					<!doctype html><html><head><title>Frontend Dev Server Error</title></head><body>
+					<h1>502 Bad Gateway</h1>
+					<p>Could not connect to the Vite development server at <strong>%s</strong>.</p>
+					<p>Please ensure the frontend dev server is running by executing <code>npm run dev --prefix web</code> in a separate terminal.</p>
+					<hr>
+					<p><em>Error: %v</em></p>
+					</body></html>
+				`, webDevServerURL, err)
+			}
 
-    // --- Serve the SPA / Frontend Development Proxy ---
-    if webDevServerURL != "" {
-        slogger.Log.Info("Development mode: Proxying frontend to Vite dev server", "url", webDevServerURL)
-        remote, err := url.Parse(webDevServerURL)
-        if err != nil {
-            slogger.Log.Error("Failed to parse web development server URL", "err", err, "url", webDevServerURL)
-            // Fallback to static serving if URL is invalid, although it might not work in dev.
-            // In a real scenario, this might be a fatal error or clearer error page.
-            workDir, _ := os.Getwd()
-            http.ServeFile(nil, nil, filepath.Join(workDir, "web", "index.html")) // Serve raw index.html as fallback
-            return nil // Or handle error appropriately
-        }
-
-        proxy := httputil.NewSingleHostReverseProxy(remote)
-        r.Handle("/*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            // Update the request to point to the proxy target
-            // Optionally, add X-Forwarded-For header
-            r.Header.Set("X-Forwarded-For", r.RemoteAddr)
-            proxy.ServeHTTP(w, r)
-        }))
-    } else {
-        slogger.Log.Info("Production mode: Serving static frontend files from 'web/dist'")
-        workDir, _ := os.Getwd()
-        staticFilesPath := http.Dir(filepath.Join(workDir, "web", "dist"))
-        staticFileServer := http.FileServer(staticFilesPath)
-
-        // Serve static files (like JS, CSS, images) from the /assets directory
-        r.Handle("/assets/*", http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(workDir, "web", "dist", "assets")))))
-
-        // Serve other specific root files if needed (like favicon, logo)
-        r.Handle("/nixon_logo.svg", staticFileServer) // Assumes nixon_logo.svg is in web/dist or accessible from staticFilesPath
-
-        // For all other requests that are not API calls, serve the SPA's entry point.
-        r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
-            http.ServeFile(w, r, filepath.Join(workDir, "web", "dist", "index.html"))
-        })
-    }
-
+			r.Handle("/*", proxy)
+		}
+	} else {
+		slogger.Log.Info("Production mode: Serving static frontend files from 'web/dist'")
+		workDir, _ := os.Getwd()
+		staticDir := filepath.Join(workDir, "web", "dist")
+		r.Handle("/assets/*", http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(staticDir, "assets")))))
+		r.Handle("/nixon_logo.svg", http.FileServer(http.Dir(staticDir)))
+		r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
+			http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
+		})
+	}
 	return r
+}
+
+// --- API Handler Functions ---
+
+func handleGetStatus(ctrl *control.Manager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		status := ctrl.GetStatus()
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(status)
+	}
 }
 
 func handleStreamStart(ctrl *control.Manager) http.HandlerFunc {
@@ -155,7 +162,6 @@ func handleStreamStart(ctrl *control.Manager) http.HandlerFunc {
 			respondWithError(w, http.StatusBadRequest, err, "Validation failed: "+err.Error())
 			return
 		}
-
 		if err := ctrl.StartStream(body.Type); err != nil {
 			respondWithError(w, http.StatusInternalServerError, err, "Failed to start stream")
 			return
@@ -167,10 +173,14 @@ func handleStreamStart(ctrl *control.Manager) http.HandlerFunc {
 func handleStreamStop(ctrl *control.Manager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Type string `json:"type"`
+			Type string `json:"type" validate:"required,oneof=srt icecast"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			respondWithError(w, http.StatusBadRequest, err, "Invalid request body")
+			return
+		}
+		if err := validate.Struct(body); err != nil {
+			respondWithError(w, http.StatusBadRequest, err, "Validation failed: "+err.Error())
 			return
 		}
 		if err := ctrl.StopStream(body.Type); err != nil {
@@ -222,18 +232,8 @@ func handleDeleteRecording(ctrl *control.Manager) http.HandlerFunc {
 		}
 		if err := ctrl.DeleteRecording(uint(id)); err != nil {
 			respondWithError(w, http.StatusInternalServerError, err, "Failed to delete recording")
-
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-	}
-
-}
-
-func handleGetStatus(ctrl *control.Manager) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		status := ctrl.GetStatus()
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(status)
 	}
 }

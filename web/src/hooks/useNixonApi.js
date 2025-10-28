@@ -29,8 +29,9 @@ export const useNixonApi = () => {
 
   const connectWebSocket = useCallback(() => {
     const token = "nixon-default-secret";
-    const socketUrl = `ws://${window.location.host}/ws?token=${token}`;
-    if (socketRef.current && socketRef.current.readyState < 2) return;
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'; // ADDED/MODIFIED: Determine secure/insecure protocol
+    const socketUrl = `${wsProtocol}//${window.location.host}/ws?token=${token}`; // MODIFIED: Use wsProtocol
+        if (socketRef.current && socketRef.current.readyState < 2) return;
 
     socketRef.current = new WebSocket(socketUrl);
     socketRef.current.onopen = () => setIsConnected(true);
