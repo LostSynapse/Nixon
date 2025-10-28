@@ -8,8 +8,7 @@ config.json
 /web/dist/
 
 # Project IDX / IDE
-.idx/
-.vscode/
+
 
 # Environment
 .env # Contains local environment variables

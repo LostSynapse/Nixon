@@ -1,0 +1,49 @@
+{
+    // Go Language Server (gopls) settings
+    "go.useLanguageServer": true,
+    "go.lintOnSave": "workspace",
+    "go.formatOnSave": true,
+    "go.formatTool": "goimports",
+    "go.toolsManagement.autoUpdate": true,
+    "go.testOnSave": true,
+    "go.organizeImports": true,
+  
+    // Editor settings
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit",
+      "source.fixAll.eslint": "explicit"
+    },
+  
+    // ESLint settings for JavaScript/TypeScript/React
+    "eslint.enable": true,
+    "eslint.workingDirectories": ["./web"], // Tell ESLint to look for config in the 'web' directory
+    "eslint.validate": [
+      "javascript",
+      "javascriptreact",
+      "typescript",
+      "typescriptreact"
+    ],
+  
+    // Optional: If you use Prettier (not explicitly requested but common)
+    // "prettier.enable": true,
+    // "prettier.singleQuote": true,
+    // "prettier.semi": false,
+  
+    // Files to exclude from file explorer and search
+    "files.exclude": {
+      "**/.git": true,
+      "**/.svn": true,
+      "**/.hg": true,
+      "**/CVS": true,
+      "**/.DS_Store": true,
+      "**/.dockerignore": true,
+      "**/node_modules": true,
+      "**/web/dist": true // Exclude compiled frontend output
+    },
+    "search.exclude": {
+      "**/node_modules": true,
+      "**/web/dist": true
+    }
+  }
+  
