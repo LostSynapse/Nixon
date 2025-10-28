@@ -41,7 +41,7 @@ func main() {
 	go websocket.HandleMessages()
 
 	// Setup router
-	router := api.NewRouter(ctrl)
+	router := api.NewRouter(ctrl, config.AppConfig.Web.WebDevServerURL) // ADDED: Pass WebDevServerURL
 
 	// Get listen address from configuration
 	// CHANGED: Access config directly from config.AppConfig.Web.ListenAddress

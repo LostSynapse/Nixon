@@ -44,7 +44,7 @@
         web = {
           # Example: run "npm run dev" with PORT set to IDX's defined port for previews,
           # and show it in IDX's web preview panel
-          command = ["sh" "-c" "cd web && npm run dev"];
+          command = ["sh" "-c" "cd web && npm run dev -- --host 0.0.0.0"];
           manager = "web";
           env = {
             # Environment variables to set for your server
@@ -57,8 +57,9 @@
           manager = "web"; # Use 'web' to get a preview URL and expose the port
           env = {
             # Environment variables for the Go backend
-            WEB_LISTENADDRESS = "0.0.0.0:$PORT"; # Make Go backend listen on IDX-provided port
+            WEB_LISTENADDRESS = "$PORT"; # Make Go backend listen on IDX-provided port
             DATABASE_PATH = "/tmp/nixon.db"; # A default database path for development
+            NIXON_WEB_DEV_SERVER_URL = "http://localhost:$WEB_PORT"; # ADDED
             # Add other relevant environment variables as needed, e.g.:
             # NIXON_AUDIO_DEVICENAME = "default";
             # NIXON_WEBS_SECRET = "your-secret";
@@ -78,6 +79,7 @@
       };
       # Runs when the workspace is (re)started
       onStart = {
+        log-dev-server-url = "echo '--- Vite Dev Server (internal) URL: http://0.0.0.0:$PORT ---'";
         # The previews configured above will handle starting the applications
       };
     };

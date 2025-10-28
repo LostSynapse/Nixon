@@ -1,0 +1,15 @@
+# Go
+/nixon_server
+/vendor/
+config.json
+
+# Node
+/web/node_modules/
+/web/dist/
+
+# Project IDX / IDE
+.idx/
+.vscode/
+
+# Environment
+.env # Contains local environment variables

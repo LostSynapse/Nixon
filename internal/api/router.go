@@ -9,6 +9,8 @@ import (
 	"github.com/go-playground/validator/v10"
 	"log/slog"
 	"net/http"
+	"net/http/httputil" // ADDED: For reverse proxy
+    "net/url"           // ADDED: For parsing URLs
 	"nixon/internal/config"
 	"nixon/internal/control"
 	"nixon/internal/slogger"
@@ -17,6 +19,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
+	
 )
 
 var validate = validator.New()
@@ -77,7 +80,8 @@ func wsAuthMiddleware(next http.Handler) http.Handler {
 }
 
 // NewRouter creates a new router with all the application's routes.
-func NewRouter(ctrl *control.Manager) *chi.Mux {
+func NewRouter(ctrl *control.Manager, webDevServerURL string) *chi.Mux { // MODIFIED: Added webDevServerURL param
+
 	r := chi.NewRouter()
 
 	r.Use(NewStructuredLogger(slogger.Log))
@@ -97,22 +101,43 @@ func NewRouter(ctrl *control.Manager) *chi.Mux {
 		r.Get("/status", handleGetStatus(ctrl))
 	})
 
-	// --- Serve the SPA ---
-	workDir, _ := os.Getwd()
-	staticFilesPath := http.Dir(filepath.Join(workDir, "web", "dist"))
-	staticFileServer := http.FileServer(staticFilesPath)
+    // --- Serve the SPA / Frontend Development Proxy ---
+    if webDevServerURL != "" {
+        slogger.Log.Info("Development mode: Proxying frontend to Vite dev server", "url", webDevServerURL)
+        remote, err := url.Parse(webDevServerURL)
+        if err != nil {
+            slogger.Log.Error("Failed to parse web development server URL", "err", err, "url", webDevServerURL)
+            // Fallback to static serving if URL is invalid, although it might not work in dev.
+            // In a real scenario, this might be a fatal error or clearer error page.
+            workDir, _ := os.Getwd()
+            http.ServeFile(nil, nil, filepath.Join(workDir, "web", "index.html")) // Serve raw index.html as fallback
+            return nil // Or handle error appropriately
+        }
 
-	// Serve static files (like JS, CSS, images) from the /assets directory
-	r.Handle("/assets/*", http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(workDir, "web", "dist", "assets")))))
+        proxy := httputil.NewSingleHostReverseProxy(remote)
+        r.Handle("/*", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            // Update the request to point to the proxy target
+            // Optionally, add X-Forwarded-For header
+            r.Header.Set("X-Forwarded-For", r.RemoteAddr)
+            proxy.ServeHTTP(w, r)
+        }))
+    } else {
+        slogger.Log.Info("Production mode: Serving static frontend files from 'web/dist'")
+        workDir, _ := os.Getwd()
+        staticFilesPath := http.Dir(filepath.Join(workDir, "web", "dist"))
+        staticFileServer := http.FileServer(staticFilesPath)
 
-	// Serve other specific root files if needed (like favicon)
-	r.Handle("/nixon_logo.svg", staticFileServer)
+        // Serve static files (like JS, CSS, images) from the /assets directory
+        r.Handle("/assets/*", http.StripPrefix("/assets/", http.FileServer(http.Dir(filepath.Join(workDir, "web", "dist", "assets")))))
 
-	// For all other requests that are not API calls, serve the SPA's entry point.
-	// This is the key for single-page application routing.
-	r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, filepath.Join(workDir, "web", "dist", "index.html"))
-	})
+        // Serve other specific root files if needed (like favicon, logo)
+        r.Handle("/nixon_logo.svg", staticFileServer) // Assumes nixon_logo.svg is in web/dist or accessible from staticFilesPath
+
+        // For all other requests that are not API calls, serve the SPA's entry point.
+        r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
+            http.ServeFile(w, r, filepath.Join(workDir, "web", "dist", "index.html"))
+        })
+    }
 
 	return r
 }

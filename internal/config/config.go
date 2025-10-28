@@ -22,6 +22,7 @@ type Config struct {
 type WebSettings struct {
 	ListenAddress string `mapstructure:"listenAddress"`
 	Secret        string `mapstructure:"secret"`
+	WebDevServerURL string `mapstructure:"webDevServerURL"` // ADDED: URL for the Vite development server
 }
 
 // AudioSettings configures the audio processing
@@ -96,6 +97,7 @@ func LoadConfig() {
 	viper.SetDefault("srt.enabled", false)
 	viper.SetDefault("pipewire.socket", "") // Default socket lets the library auto-discover
 	viper.SetDefault("web.secret", "nixon-default-secret")
+	viper.SetDefault("web.webDevServerURL", "") // ADDED: Default empty, will be set by env for dev
 
 	err := viper.ReadInConfig()
 	if err != nil {
