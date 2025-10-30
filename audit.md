@@ -2,7 +2,7 @@
 
 The roadmap is clear on the planned feature set:
 
-* **Phase 1 (Complete):** Core Go/GStreamer audio engine (SRT/Icecast) with SQLite database and a React/WebSocket real-time UI for basic control and recording management.
+* **Phase 1 (Complete):** Core Go/pipewire audio engine (SRT/Icecast) with SQLite database and a React/WebSocket real-time UI for basic control and recording management.
 * **Phase 2 (Automation):** Focus on making the core recorder intelligent via VAD, pre-roll buffering (crucial feature for audio), and auto-purge disk management.
 * **Phase 3 (Security):** Implementing user roles, authentication, and ownership (requires updates to the \`db\` package and API handlers).
 * **Phase 4 (Advanced):** Advanced audio settings (channel mapping), Web Player enhancements (waveform), and a system dashboard.

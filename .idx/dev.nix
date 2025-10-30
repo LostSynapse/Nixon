@@ -22,7 +22,7 @@
     pkgs.gst_all_1.gst-plugins-bad  # Less common plugins (incl. SRT)
     pkgs.gst_all_1.gst-plugins-ugly # Good plugins with potential licensing issues (incl. LAME for MP3)
     pkgs.libshout
-    pkgs.nodePackages.npm
+    pkgs.nodePackages.npm 
  ];
 
   # Sets environment variables in the workspace
