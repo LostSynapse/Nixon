@@ -2,6 +2,7 @@
 
 This guide provides step-by-step instructions for manually installing, configuring, and running the Nixon audio management application from the source code.
 
+
 ## 1. Prerequisites
 
 Before you begin, ensure your system has the required dependencies for both the Go backend and the React frontend. This application is primarily developed and tested on Linux.

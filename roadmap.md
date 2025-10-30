@@ -2,6 +2,8 @@
 
 This document outlines the development plan for the Nixon project, incorporating the current state of the codebase, findings from the recent audit, and the long-term goal of creating a managed appliance.
 
+**PLEASE NOTE THAT THIS DOCUMENT IS OUTDATED. SEE UI/UX DOC AND MANDATE**
+
 ## Current State & Audit Findings
 
 The existing `Nixon-testing` codebase provides a solid foundation but requires immediate attention in several areas to ensure stability, maintainability, and security. The `audit.md` report highlights the following critical issues:

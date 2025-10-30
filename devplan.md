@@ -1,5 +1,7 @@
 # Nixon Development Plan
 
+**PLEASE NOTE THAT THIS DOCUMENT IS OUTDATED. SEE UI/UX DOC AND MANDATE**
+
 ## Priority 1: Code Hygiene, Security, and Consistency
 
 ### Task 1.1: Dependency Management
